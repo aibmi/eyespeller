@@ -1,0 +1,250 @@
+# Blueprint: Standalone Eye-Controlled Japanese Speller (`index.html`)
+
+Save this complete block as a plain text document on your Windows 11 PC using Notepad. Name it exactly `index.html`, upload it to your free cloud hosting site, and open/bookmark it inside the **Bluefy** app on your iPhone 11.
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Low-Power Eye Speller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
+        #preview-box { width: 100%; padding: 20px; font-size: 36px; font-weight: bold; background: #1c1c1e; color: #ffffff; text-align: left; border-radius: 12px; min-height: 80px; box-sizing: border-box; border: 2px solid #2c2c2e; margin-bottom: 15px; word-wrap: break-word; }
+        #matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-grow: 1; }
+        .grid-button { background: #1c1c1e; color: #ffffff; border: 3px solid #2c2c2e; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: bold; transition: all 0.05s; }
+        .active-focus { border-color: #30d158 !important; background: #1c3d22 !important; box-shadow: 0 0 15px #30d158; }
+        .trigger-flash { background: #30d158 !important; color: #000000 !important; }
+        #video-container { position: absolute; bottom: 10px; right: 10px; width: 80px; height: 60px; border-radius: 6px; overflow: hidden; border: 1px solid #333; opacity: 0.3; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    </style>
+</head>
+<body>
+
+    <div id="preview-box">＿</div>
+    <div id="matrix"></div>
+    
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+
+<script>
+const characterTree = [
+    { name: "あ行", items: ["あ", "い", "う", "え", "お", "前"] },
+    { name: "か行", items: ["か", "き", "く", "け", "こ", "が", "ぎ", "ぐ", "げ", "ご", "前"] },
+    { name: "さ行", items: ["さ", "し", "す", "せ", "そ", "ざ", "じ", "ず", "ぜ", "ぞ", "前"] },
+    { name: "た行", items: ["た", "ち", "つ", "て", "と", "だ", "ぢ", "づ", "で", "ど", "前"] },
+    { name: "な行", items: ["な", "に", "ぬ", "ね", "の", "前"] },
+    { name: "は行", items: ["は", "ひ", "ふ", "へ", "ほ", "ば", "び", "ぶ", "べ", "ぼ", "ぱ", "ぴ", "ぷ", "ぺ", "ぽ", "前"] },
+    { name: "ま行", items: ["ま", "み", "む", "め", "も", "前"] },
+    { name: "や行", items: ["や", "ゆ", "よ", "前"] },
+    { name: "ら行", items: ["ら", "り", "る", "れ", "ろ", "前"] },
+    { name: "わ行", items: ["わ", "を", "ん", "ゃ", "ゅ", "ょ", "っ", "前"] },
+    { name: "メニュー", items: ["スペース", "読み上げ", "おねがい", "一文字消去", "全消去", "休止モード", "前"] }
+];
+
+let constructedString = "";
+let currentTier = 1; 
+let activeRowIndex = 0;
+let activeColIndex = 0;
+let loopInterval = null;
+let isBroadcasting = false;
+let isSleeping = false;
+
+let video, canvas, ctx;
+let eyeClosedStartTime = 0;
+let eyesWereClosed = false;
+
+const previewDOM = document.getElementById("preview-box");
+const matrixDOM = document.getElementById("matrix");
+
+function buildTier1UI() {
+    matrixDOM.innerHTML = "";
+    matrixDOM.style.gridTemplateColumns = "repeat(4, 1fr)";
+    characterTree.forEach((row, index) => {
+        let btn = document.createElement("div");
+        btn.className = "grid-button";
+        btn.id = `cell-${index}`;
+        btn.innerText = row.name;
+        matrixDOM.appendChild(btn);
+    });
+    updateFocusVisuals();
+}
+
+function buildTier2UI(rowIndex) {
+    matrixDOM.innerHTML = "";
+    const activeRowItems = characterTree[rowIndex].items;
+    matrixDOM.style.gridTemplateColumns = activeRowItems.length > 6 ? "repeat(4, 1fr)" : "repeat(3, 1fr)";
+    
+    activeRowItems.forEach((item, index) => {
+        let btn = document.createElement("div");
+        btn.className = "grid-button";
+        btn.id = `cell-${index}`;
+        btn.innerText = item;
+        matrixDOM.appendChild(btn);
+    });
+    updateFocusVisuals();
+}
+
+function updateFocusVisuals() {
+    document.querySelectorAll(".grid-button").forEach(el => el.classList.remove("active-focus"));
+    let activeId = currentTier === 1 ? `cell-${activeRowIndex}` : `cell-${activeColIndex}`;
+    let targetElement = document.getElementById(activeId);
+    if (targetElement) targetElement.classList.add("active-focus");
+}
+
+function startMasterScanLoop() {
+    if (loopInterval) clearInterval(loopInterval);
+    loopInterval = setInterval(() => {
+        if (isBroadcasting || isSleeping) return;
+        
+        if (currentTier === 1) {
+            activeRowIndex = (activeRowIndex + 1) % characterTree.length;
+        } else {
+            const maxCols = characterTree[activeRowIndex].items.length;
+            activeColIndex = (activeColIndex + 1) % maxCols;
+        }
+        updateFocusVisuals();
+    }, 2000); 
+}
+
+function executeSelectionAction() {
+    if (isBroadcasting) return;
+    
+    let targetId = currentTier === 1 ? `cell-${activeRowIndex}` : `cell-${activeColIndex}`;
+    let targetElement = document.getElementById(targetId);
+    if (targetElement) targetElement.classList.add("trigger-flash");
+
+    setTimeout(() => {
+        if (currentTier === 1) {
+            currentTier = 2;
+            activeColIndex = 0;
+            buildTier2UI(activeRowIndex);
+        } else {
+            const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
+            processSelection(selectedItem);
+        }
+    }, 150);
+}
+
+function processSelection(value) {
+    if (value === "前") {
+        returnToTier1();
+        return;
+    }
+
+    if (activeRowIndex === 10) { 
+        switch(value) {
+            case "スペース": constructedString += " "; break;
+            case "一文字消去": constructedString = constructedString.slice(0, -1); break;
+            case "全消去": constructedString = ""; break;
+            case "読み上げ": broadcastSentence(constructedString); break;
+            case "おねがい": 
+                constructedString += "お願いします";
+                previewDOM.innerText = constructedString + "＿";
+                broadcastSentence("お願いします"); 
+                break;
+            case "休止モード": enterSleepState(); return;
+        }
+    } else {
+        constructedString += value;
+    }
+    
+    previewDOM.innerText = constructedString == "" ? "＿" : constructedString + "＿";
+    returnToTier1();
+}
+
+function returnToTier1() {
+    currentTier = 1;
+    buildTier1UI();
+}
+
+function broadcastSentence(textToSpeak) {
+    if (textToSpeak.trim() === "") return;
+    isBroadcasting = true;
+    
+    let speechUnit = new SpeechSynthesisUtterance(textToSpeak);
+    speechUnit.lang = 'ja-JP';
+    speechUnit.volume = 1.0; 
+    speechUnit.rate = 0.85;  
+    
+    speechUnit.onend = function() {
+        isBroadcasting = false;
+    };
+    
+    window.speechSynthesis.speak(speechUnit);
+}
+
+function enterSleepState() {
+    isSleeping = true;
+    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (2秒間目を閉じて再開)</div>";
+}
+
+function exitSleepState() {
+    isSleeping = false;
+    returnToTier1();
+}
+
+async function setupWebcam() {
+    video = document.getElementById('webcam');
+    canvas = document.createElement('canvas');
+    ctx = canvas.getContext('2d');
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 160, height: 120 } });
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            analyzePixelsLoop();
+        });
+    } catch (err) {
+        console.error("Camera error: ", err);
+    }
+}
+
+function analyzePixelsLoop() {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = frame.data;
+    
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        totalBrightness += (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+    }
+    let averageBrightness = totalBrightness / (data.length / 4);
+    let eyesClosed = averageBrightness < 35; 
+    
+    if (eyesClosed) {
+        if (!eyesWereClosed) {
+            eyeClosedStartTime = Date.now();
+            eyesWereClosed = true;
+        }
+    } else {
+        if (eyesWereClosed) {
+            let duration = (Date.now() - eyeClosedStartTime) / 1000.0;
+            eyesWereClosed = false;
+            
+            if (isSleeping) {
+                if (duration >= 2.0) { 
+                    exitSleepState();
+                }
+            } else {
+                if (duration >= 0.8 && duration < 2.0) { 
+                    executeSelectionAction();
+                }
+            }
+        }
+    }
+    requestAnimationFrame(analyzePixelsLoop);
+}
+
+buildTier1UI();
+startMasterScanLoop();
+setupWebcam();
+</script>
+</body>
+</html>
+```
+  
