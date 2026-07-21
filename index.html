@@ -25,8 +25,9 @@
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
     </div>
 
-<script>
-// --- AUTO REFRESH LOGIC (5 mins frequency / 24 hours expiry) ---
+    <!-- Paste the Script Content from Part 2 below this line -->
+</body><script>
+// --- AUTO REFRESH LOGIC (Immediate first run, then 5 mins frequency / 24 hours expiry) ---
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -34,11 +35,14 @@
 
     let startTime = localStorage.getItem('bluefy_refresh_start');
     
+    // Force immediate refresh on the absolute first launch to kickstart environment
     if (!startTime) {
-        startTime = NOW;
-        localStorage.setItem('bluefy_refresh_start', startTime);
+        localStorage.setItem('bluefy_refresh_start', NOW);
+        window.location.reload(); 
+        return; 
     }
 
+    // Maintain 5-minute reload loop for 24 hours
     if (NOW - startTime < TWENTY_FOUR_HOURS) {
         setTimeout(() => {
             window.location.reload();
@@ -114,6 +118,7 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
+// Slower cursor scanning loop to prevent missing selections (Changed to 4.5 seconds)
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
@@ -126,7 +131,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 2000); 
+    }, 4500); 
 }
 
 function executeSelectionAction() {
@@ -198,7 +203,7 @@ function broadcastSentence(textToSpeak) {
 
 function enterSleepState() {
     isSleeping = true;
-    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (画面タップで再開)</div>";
+    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (画面タップや瞬きで再開)</div>";
 }
 
 function exitSleepState() {
@@ -233,9 +238,56 @@ async function setupWebcam() {
     }
 }
 
+// --- BLINK DETECTION VIA LUMINANCE SPIKE ---
 function analyzePixelsLoop() {
-    if (!video || video.paused || video.ended) return;
-    // Rest of your pixel analysis routine goes here...
+    if (!video || video.paused || video.ended) {
+        requestAnimationFrame(analyzePixelsLoop);
+        return;
+    }
+
+    try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        
+        let totalBrightness = 0;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            let r = data[i];
+            let g = data[i + 1];
+            let b = data[i + 2];
+            totalBrightness += (0.299 * r + 0.587 * g + 0.114 * b);
+        }
+        
+        const currentBrightness = totalBrightness / (data.length / 4);
+
+        if (baselineBrightness === null) {
+            baselineBrightness = currentBrightness;
+        }
+
+        const brightnessDiff = currentBrightness - baselineBrightness;
+
+        // Threshold 12 is optimal for general lighting. Lower it to 8 or 10 if blinks go unregistered.
+        if (brightnessDiff > 12) { 
+            if (!eyesWereClosed) {
+                eyesWereClosed = true; 
+                if (isSleeping) {
+                    exitSleepState();
+                } else {
+                    executeSelectionAction();
+                }
+            }
+        } else {
+            eyesWereClosed = false;
+        }
+
+        // Slowly shift the base threshold to account for gradual changes in ambient lighting
+        baselineBrightness = baselineBrightness * 0.98 + currentBrightness * 0.02;
+
+    } catch (e) {
+        console.error("Frame processing error:", e);
+    }
+
     requestAnimationFrame(analyzePixelsLoop);
 }
 
@@ -244,5 +296,5 @@ buildTier1UI();
 startMasterScanLoop();
 setupWebcam();
 </script>
-</body>
+
 </html>
