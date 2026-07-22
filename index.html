@@ -2,25 +2,30 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Low-Power Eye Speller</title>
+    <title>Low-Power Eyebrow Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
+        body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; pointer-events: none; }
         #preview-box { width: 100%; padding: 20px; font-size: 36px; font-weight: bold; background: #1c1c1e; color: #ffffff; text-align: left; border-radius: 12px; min-height: 80px; box-sizing: border-box; border: 2px solid #2c2c2e; margin-bottom: 15px; word-wrap: break-word; }
         #matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-grow: 1; }
         .grid-button { background: #1c1c1e; color: #ffffff; border: 3px solid #2c2c2e; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: bold; transition: all 0.05s; }
         .active-focus { border-color: #30d158 !important; background: #1c3d22 !important; box-shadow: 0 0 15px #30d158; }
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
+        #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #007aff; opacity: 0.8; z-index: 9999; background: #222; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
     </style>
 </head>
 <body>
 
     <div id="preview-box">＿</div>
     <div id="matrix"></div>
+    
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
+    </div>
 <script>
 let trackingReady = false; 
 
-// --- AUTO REFRESH TIMING CORE ---
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -28,7 +33,7 @@ let trackingReady = false;
     let startTime = localStorage.getItem('bluefy_refresh_start');
     if (!startTime) {
         localStorage.setItem('bluefy_refresh_start', NOW);
-        window.location.reload(); 
+        setTimeout(() => { window.location.reload(); }, 2000);
         return; 
     }
     if (NOW - startTime < TWENTY_FOUR_HOURS) {
@@ -37,11 +42,6 @@ let trackingReady = false;
         localStorage.removeItem('bluefy_refresh_start');
     }
 })();
-
-// Settle exposure layout on launch
-setTimeout(() => {
-    trackingReady = true;
-}, 3000);
 
 const characterTree = [
     { name: "あ行", items: ["あ", "い", "う", "え", "お", "前"] },
@@ -64,9 +64,13 @@ let activeColIndex = 0;
 let loopInterval = null;
 let isBroadcasting = false;
 let isSleeping = false;
+let video, canvas, ctx;
+let baselineUpperBrightness = null;
+let eyebrowsWereRaised = false;
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
+const videoContainerDOM = document.getElementById("video-container");
 
 function playBlinkConfirmationSound() {
     try {
@@ -96,7 +100,6 @@ function buildTier1UI() {
     });
     updateFocusVisuals();
 }
-
 function buildTier2UI(rowIndex) {
     matrixDOM.innerHTML = "";
     const activeRowItems = characterTree[rowIndex].items;
@@ -187,22 +190,67 @@ function broadcastSentence(textToSpeak) {
 
 function enterSleepState() {
     isSleeping = true;
-    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (目を開けて再開)</div>";
+    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (眉を上げて再開)</div>";
 }
 
 function exitSleepState() { isSleeping = false; returnToTier1(); }
 
-// BRIDGING RECEIVER FOR NATIVE IOS SYSTEM ACCESSIBILITY SIGNALS
-window.addEventListener('click', () => {
-    if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
-});
+async function setupWebcam() {
+    video = document.getElementById('webcam');
+    canvas = document.createElement('canvas');
+    ctx = canvas.getContext('2d');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 160, height: 120 } });
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.addEventListener('loadedmetadata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            video.muted = true;
+            video.play().catch(() => { video.muted = false; video.play(); });
+            setTimeout(() => {
+                trackingReady = true;
+                videoContainerDOM.style.borderColor = "#007aff"; 
+            }, 6000);
+            requestAnimationFrame(analyzePixelsLoop);
+        });
+    } catch (err) {}
+}
 
-window.addEventListener('touchstart', () => {
-    if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
-});
+function analyzePixelsLoop() {
+    if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
+    try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        let totalUpperBrightness = 0, upperPointsCount = 0;
+        let cutoffLine = Math.floor(canvas.height * 0.45) * canvas.width * 4;
+        
+        for (let i = 0; i < cutoffLine; i += 4) {
+            totalUpperBrightness += (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]);
+            upperPointsCount++;
+        }
+        const currentUpperBrightness = totalUpperBrightness / upperPointsCount;
+        if (baselineUpperBrightness === null) { baselineUpperBrightness = currentUpperBrightness; }
+        const movementVariance = currentUpperBrightness - baselineUpperBrightness;
+
+        if (movementVariance > 2.2) { 
+            if (!eyebrowsWereRaised && trackingReady) {
+                eyebrowsWereRaised = true; 
+                videoContainerDOM.style.borderColor = "#30d158"; 
+                setTimeout(() => { videoContainerDOM.style.borderColor = "#007aff"; }, 400);
+                if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
+            }
+        } else if (movementVariance < 0.8) { eyebrowsWereRaised = false; }
+        baselineUpperBrightness = baselineUpperBrightness * 0.94 + currentUpperBrightness * 0.06;
+    } catch (e) {}
+    requestAnimationFrame(analyzePixelsLoop);
+}
 
 buildTier1UI();
 startMasterScanLoop();
+setupWebcam();
 </script>
 </body>
 </html>
