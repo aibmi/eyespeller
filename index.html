@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>100% Local Voice Speller</title>
+    <title>100% Fixed Stable Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -29,22 +29,28 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-(function handleAutoRefresh() {
-    const FIVE_MINUTES = 5 * 60 * 1000;
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+// --- UNFREEZABLE RENDER-LOOP REFRESH ENGINE ---
+const FIVE_MINUTES = 5 * 60 * 1000;
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+let lastRefreshCheckTime = Date.now();
+
+let startTime = localStorage.getItem('bluefy_refresh_start');
+if (!startTime) {
+    startTime = Date.now();
+    localStorage.setItem('bluefy_refresh_start', startTime);
+    setTimeout(() => { window.location.reload(); }, 2000);
+}
+
+function processActiveUnfreezableRefresh() {
     const NOW = Date.now();
-    let startTime = localStorage.getItem('bluefy_refresh_start');
-    if (!startTime) {
-        localStorage.setItem('bluefy_refresh_start', NOW);
-        setTimeout(() => { window.location.reload(); }, 2000);
+    if (NOW - startTime >= TWENTY_FOUR_HOURS) {
+        localStorage.removeItem('bluefy_refresh_start');
         return; 
     }
-    if (NOW - startTime < TWENTY_FOUR_HOURS) {
-        setTimeout(() => { window.location.reload(); }, FIVE_MINUTES);
-    } else {
-        localStorage.removeItem('bluefy_refresh_start');
+    if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
+        window.location.reload();
     }
-})();
+}
 
 const characterTree = [
     { name: "あ行", items: ["あ", "い", "う", "え", "お", "前"] },
@@ -196,7 +202,7 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
-// --- 100% LOCAL SYNTHESIZED SPEECH WAVE DRIVER (Bypasses all iOS WebView limits) ---
+// --- 100% TYPO-FIXED LOCAL SYNTHESIZED SPEECH WAVE DRIVER ---
 function speakTextLocalSynth(text) {
     if (!text || text.trim() === "") return;
     isBroadcasting = true;
@@ -204,8 +210,6 @@ function speakTextLocalSynth(text) {
     if (globalAudioCtx.state === 'suspended') { globalAudioCtx.resume(); }
 
     let voiceQueue = [];
-    
-    // Map basic Japanese characters to corresponding fundamental masculine low frequencies
     const voiceMap = {
         "あ": 130, "か": 140, "さ": 150, "た": 160, "な": 170, "は": 180, "ま": 190, "や": 200, "ら": 210, "わ": 220,
         "い": 135, "き": 145, "し": 155, "ち": 165, "に": 175, "ひ": 185, "み": 195, "り": 215,
@@ -214,9 +218,8 @@ function speakTextLocalSynth(text) {
         "お": 122, "こ": 144, "そ": 154, "と": 164, "の": 174, "ほ": 184, "も": 194, "よ": 204, "ろ": 214, "を": 218
     };
 
-    // Build the pronunciation wave sequence row path
     for (let char of text) {
-        let freq = voiceMap[char] || 140; // Default frequency fallback for complex words
+        let freq = voiceMap[char] || 140; 
         voiceQueue.push(freq);
     }
 
@@ -225,28 +228,19 @@ function speakTextLocalSynth(text) {
     voiceQueue.forEach((freq, idx) => {
         const osc = globalAudioCtx.createOscillator();
         const gain = globalAudioCtx.createGain();
-        
-        // Use a customized sawtooth-triangle blend wave to mimic deep masculine vocal cords cords
         osc.type = (idx % 2 === 0) ? 'sawtooth' : 'triangle';
-        oscillatorFreq = freq;
-        osc.frequency.setValueAtTime(oscillatorFreq, timeOffset);
-        
+        osc.frequency.setValueAtTime(freq, timeOffset);
         gain.gain.setValueAtTime(0, timeOffset);
-        gain.gain.linearRampToValueAtTime(0.12, timeOffset + 0.05); // Smooth vocal attack scale
-        gain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.32); // Vocal decay scale
-
+        gain.gain.linearRampToValueAtTime(0.12, timeOffset + 0.05); 
+        gain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.32); 
         osc.connect(gain);
         gain.connect(globalAudioCtx.destination);
-        
         osc.start(timeOffset);
         osc.stop(timeOffset + 0.35);
-        
-        timeOffset += 0.28; // Speed delay cadence between spoken syllables
+        timeOffset += 0.28; 
     });
 
-    setTimeout(() => {
-        isBroadcasting = false;
-    }, (voiceQueue.length * 280) + 100);
+    setTimeout(() => { isBroadcasting = false; }, (voiceQueue.length * 280) + 100);
 }
 
 function enterSleepState() {
@@ -261,7 +255,6 @@ async function setupWebcam() {
     canvas = document.createElement('canvas');
     ctx = canvas.getContext('2d');
     try {
-        // Microphone tracking removed completely to maximize battery lifespan
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 160, height: 120 } });
         video.srcObject = stream;
         video.setAttribute('playsinline', 'true');
@@ -279,6 +272,9 @@ async function setupWebcam() {
 
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
+    
+    processActiveUnfreezableRefresh();
+
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
