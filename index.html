@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>100% Fixed Local Tone Speller</title>
+    <title>100% Stable Consonant Synth Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -187,11 +187,11 @@ function processSelection(value) {
             case "スペース": constructedString += " "; break;
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
-            case "読み上げ": playTypoFreeBuzzerSpeech(constructedString); break; 
+            case "読み上げ": playSplicedConsonantSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
                 previewDOM.innerText = constructedString + "＿";
-                playTypoFreeBuzzerSpeech("お願いします"); 
+                playSplicedConsonantSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
         }
@@ -201,9 +201,7 @@ function processSelection(value) {
 }
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
-
-// --- 100% FIXED BUZZER FREQUENCY MAP ENGINE (No Typos, No Sandbox Freezes) ---
-function playTypoFreeBuzzerSpeech(text) {
+function playSplicedConsonantSpeech(text) {
     if (!text || text.trim() === "") return;
     isBroadcasting = true;
     initializeHardwareAudio();
@@ -211,40 +209,74 @@ function playTypoFreeBuzzerSpeech(text) {
 
     let timeOffset = globalAudioCtx.currentTime;
 
-    // Direct text verification dictionary mapping characters to structural sound vectors
-    const secureSoundMap = {
-        "あ": 261, "か": 261, "さ": 261, "た": 261, "な": 261, "は": 261, "ま": 261, "や": 261, "ら": 261, "わ": 261,
-        "い": 293, "き": 294, "し": 294, "ち": 294, "に": 294, "ひ": 294, "み": 294, "り": 294,
-        "う": 329, "く": 330, "す": 330, "つ": 330, "ぬ": 330, "ふ": 330, "む": 330, "ゆ": 330, "る": 330, "ん": 220,
-        "え": 349, "け": 349, "せ": 349, "て": 349, "ね": 349, "へ": 349, "め": 349, "れ": 349,
-        "お": 392, "こ": 392, "そ": 392, "と": 392, "の": 392, "ほ": 392, "も": 392, "よ": 392, "ろ": 392, "を": 392
+    const syllablesMap = {
+        "あ": {vow: 135, con: 0},   "か": {vow: 140, con: 1},   "さ": {vow: 145, con: 2},   "た": {vow: 150, con: 3},   "な": {vow: 155, con: 0},
+        "は": {vow: 160, con: 4},   "ま": {vow: 165, con: 0},   "や": {vow: 170, con: 0},   "ら": {vow: 175, con: 0},   "わ": {vow: 180, con: 0},
+        "い": {vow: 250, con: 0},   "き": {vow: 255, con: 1},   "し": {vow: 260, con: 2},   "ち": {vow: 265, con: 3},   "に": {vow: 270, con: 0},
+        "ひ": {vow: 275, con: 4},   "み": {vow: 280, con: 0},   "り": {vow: 290, con: 0},
+        "う": {vow: 110, con: 0},   "く": {vow: 115, con: 1},   "す": {vow: 120, con: 2},   "つ": {vow: 125, con: 3},   "ぬ": {vow: 130, con: 0},
+        "ふ": {vow: 105, con: 4},   "む": {vow: 112, con: 0},   "ゆ": {vow: 118, con: 0},   "る": {vow: 122, con: 0},   "ん": {vow: 95,  con: 0},
+        "え": {vow: 190, con: 0},   "け": {vow: 195, con: 1},   "せ": {vow: 200, con: 2},   "て": {vow: 205, con: 3},   "ね": {vow: 210, con: 0},
+        "へ": {vow: 215, con: 4},   "め": {vow: 220, con: 0},   "れ": {vow: 230, con: 0},
+        "お": {vow: 125, con: 0},   "こ": {vow: 128, con: 1},   "そ": {vow: 132, con: 2},   "と": {vow: 136, con: 3},   "の": {vow: 142, con: 0},
+        "ほ": {vow: 146, con: 4},   "も": {vow: 152, con: 0},   "よ": {vow: 158, con: 0},   "ろ": {vow: 164, con: 0},   "を": {vow: 125, con: 0}
     };
 
-    for (let char of text) {
-        let freq = secureSoundMap[char] || 300; // Secure fallback if a complex word hits the router
-        
-        const osc = globalAudioCtx.createOscillator();
-        const gainNode = globalAudioCtx.createGain();
-        
-        osc.type = 'triangle'; // Clean, distinct acoustic tone profile
-        osc.frequency.setValueAtTime(freq, timeOffset);
-        
-        gainNode.gain.setValueAtTime(0, timeOffset);
-        gainNode.gain.linearRampToValueAtTime(0.15, timeOffset + 0.04);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.22);
-        
-        osc.connect(gainNode);
-        gainNode.connect(globalAudioCtx.destination);
-        
-        osc.start(timeOffset);
-        osc.stop(timeOffset + 0.25);
-        
-        timeOffset += 0.30; // Rhythmic pause cadence window between syllable sounds
+    let noiseBufferSize = globalAudioCtx.sampleRate * 0.08; 
+    let noiseBuffer = globalAudioCtx.createBuffer(1, noiseBufferSize, globalAudioCtx.sampleRate);
+    let noiseOutput = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseBufferSize; i++) {
+        noiseOutput[i] = Math.random() * 2 - 1;
     }
 
-    setTimeout(() => {
-        isBroadcasting = false;
-    }, (text.length * 300) + 100);
+    for (let char of text) {
+        let nodeData = syllablesMap[char] || {vow: 150, con: 0};
+        
+        if (nodeData.con > 0) {
+            let noiseNode = globalAudioCtx.createBufferSource();
+            let noiseFilter = globalAudioCtx.createBiquadFilter();
+            let noiseGain = globalAudioCtx.createGain();
+            noiseNode.buffer = noiseBuffer;
+            noiseGain.gain.setValueAtTime(0, timeOffset);
+            
+            if (nodeData.con === 1) { 
+                noiseFilter.type = 'bandpass'; noiseFilter.frequency.setValueAtTime(1200, timeOffset);
+                noiseGain.gain.linearRampToValueAtTime(0.25, timeOffset + 0.01);
+            } else if (nodeData.con === 2) { 
+                noiseFilter.type = 'highpass'; noiseFilter.frequency.setValueAtTime(6000, timeOffset);
+                noiseGain.gain.linearRampToValueAtTime(0.18, timeOffset + 0.02);
+            } else if (nodeData.con === 3) { 
+                noiseFilter.type = 'bandpass'; noiseFilter.frequency.setValueAtTime(800, timeOffset);
+                noiseGain.gain.linearRampToValueAtTime(0.35, timeOffset + 0.005);
+            } else if (nodeData.con === 4) { 
+                noiseFilter.type = 'lowpass'; noiseFilter.frequency.setValueAtTime(2500, timeOffset);
+                noiseGain.gain.linearRampToValueAtTime(0.14, timeOffset + 0.03);
+            }
+            
+            noiseGain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.07);
+            noiseNode.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(globalAudioCtx.destination);
+            noiseNode.start(timeOffset); noiseNode.stop(timeOffset + 0.08);
+        }
+
+        const oscCore = globalAudioCtx.createOscillator();
+        const oscBlend = globalAudioCtx.createOscillator();
+        const vocalGain = globalAudioCtx.createGain();
+        
+        oscCore.type = 'sawtooth'; oscCore.frequency.setValueAtTime(nodeData.vow, timeOffset + 0.03);
+        oscBlend.type = 'triangle'; oscBlend.frequency.setValueAtTime(nodeData.vow * 2, timeOffset + 0.03);
+        
+        vocalGain.gain.setValueAtTime(0, timeOffset);
+        vocalGain.gain.linearRampToValueAtTime(0.12, timeOffset + 0.06); 
+        vocalGain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.28); 
+        
+        oscCore.connect(vocalGain); oscBlend.connect(vocalGain); vocalGain.connect(globalAudioCtx.destination);
+        oscCore.start(timeOffset); oscBlend.start(timeOffset);
+        oscCore.stop(timeOffset + 0.32); oscBlend.stop(timeOffset + 0.32);
+        
+        timeOffset += 0.36; 
+    }
+
+    setTimeout(() => { isBroadcasting = false; }, (text.length * 360) + 100);
 }
 
 function enterSleepState() {
@@ -276,9 +308,7 @@ async function setupWebcam() {
 
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
-    
     processActiveUnfreezableRefresh();
-
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
