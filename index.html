@@ -5,13 +5,13 @@
     <title>Low-Power Head Motion Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; pointer-events: none; }
+        body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
         #preview-box { width: 100%; padding: 20px; font-size: 36px; font-weight: bold; background: #1c1c1e; color: #ffffff; text-align: left; border-radius: 12px; min-height: 80px; box-sizing: border-box; border: 2px solid #2c2c2e; margin-bottom: 15px; word-wrap: break-word; }
         #matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-grow: 1; }
         .grid-button { background: #1c1c1e; color: #ffffff; border: 3px solid #2c2c2e; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: bold; transition: all 0.05s; }
         .active-focus { border-color: #30d158 !important; background: #1c3d22 !important; box-shadow: 0 0 15px #30d158; }
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
-        #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #007aff; opacity: 0.8; z-index: 9999; background: #222; }
+        #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
     </style>
 </head>
@@ -25,6 +25,7 @@
     </div>
 <script>
 let trackingReady = false; 
+let cameraUnlocked = false;
 
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
@@ -190,7 +191,7 @@ function broadcastSentence(textToSpeak) {
 
 function enterSleepState() {
     isSleeping = true;
-    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (右を向いて再開)</div>";
+    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (首を振って再開)</div>";
 }
 
 function exitSleepState() { isSleeping = false; returnToTier1(); }
@@ -209,16 +210,17 @@ async function setupWebcam() {
             canvas.height = video.videoHeight;
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
+            
+            // Wait 6 seconds for the camera feed exposure to settle
             setTimeout(() => {
                 trackingReady = true;
-                videoContainerDOM.style.borderColor = "#007aff"; 
             }, 6000);
             requestAnimationFrame(analyzePixelsLoop);
         });
     } catch (err) {}
 }
 
-// --- PURE DIRECTIONAL RIGHT-SIDE VEHICULAR MOTION SHIFT ENGINE ---
+// --- SELF-ACTIVATING HIGH-SENSITIVITY LATERAL SHIFT ENGINE ---
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     try {
@@ -232,39 +234,44 @@ function analyzePixelsLoop() {
             return;
         }
 
-        let rightShiftPixels = 0;
+        let lateralShiftPixels = 0;
         let totalChecked = 0;
         let w = canvas.width;
         let h = canvas.height;
 
-        // Perform a grid optical flow check across neighboring column blocks
         for (let y = 4; y < h - 4; y += 4) {
             for (let x = 8; x < w - 8; x += 4) {
                 let idx = (y * w + x) * 4;
-                
-                // Compare current center brightness with the previous frame's left neighbor pixel
                 let currentCenter = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-                let prevLeftNeighbor = (prevFrameData[idx - 8] + prevFrameData[idx - 7] + prevFrameData[idx - 6]) / 3;
                 
-                if (Math.abs(currentCenter - prevLeftNeighbor) < 8 && Math.abs(data[idx] - prevFrameData[idx]) > 20) {
-                    rightShiftPixels++;
+                let prevLeftNeighbor = (prevFrameData[idx - 8] + prevFrameData[idx - 7] + prevFrameData[idx - 6]) / 3;
+                let prevRightNeighbor = (prevFrameData[idx + 8] + prevFrameData[idx + 9] + prevFrameData[idx + 10]) / 3;
+                
+                if ((Math.abs(currentCenter - prevLeftNeighbor) < 6 || Math.abs(currentCenter - prevRightNeighbor) < 6) && Math.abs(data[idx] - prevFrameData[idx]) > 8) {
+                    lateralShiftPixels++;
                 }
                 totalChecked++;
             }
         }
 
-        let rightMotionRatio = (rightShiftPixels / totalChecked) * 100;
+        let lateralMotionRatio = (lateralShiftPixels / totalChecked) * 100;
 
-        // Threshold 6.5 triggers selection only when a distinct right head slide occurs
-        if (rightMotionRatio > 6.5) { 
+        // Visual feedback sandbox patch
+        if (lateralMotionRatio > 0.1 && !cameraUnlocked) {
+            cameraUnlocked = true;
+            videoContainerDOM.style.borderColor = "#007aff"; // Frame changes to Blue to confirm sandboxed data is unlocked
+        }
+
+        // Hyper-sensitive threshold set to 0.5 to register tiny twitches effortlessly
+        if (lateralMotionRatio > 0.5 && cameraUnlocked) { 
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
-                videoContainerDOM.style.borderColor = "#30d158"; 
+                videoContainerDOM.style.borderColor = "#30d158"; // Flashes Green on trigger
                 setTimeout(() => { videoContainerDOM.style.borderColor = "#007aff"; }, 500);
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (rightMotionRatio < 2.0) {
-            motionTriggered = false; // Reset when head returns smoothly to rest position
+        } else if (lateralMotionRatio < 0.2) {
+            motionTriggered = false; 
         }
 
         for (let i = 0; i < data.length; i++) {
