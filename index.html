@@ -24,6 +24,8 @@
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
     </div>
 <script>
+let trackingReady = false; // Freeze flag to prevent false triggers on refresh
+
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -63,7 +65,7 @@ let loopInterval = null;
 let isBroadcasting = false;
 let isSleeping = false;
 let video, canvas, ctx;
-let baselineBrightness = null;
+let baselineRed = null;
 let eyesWereClosed = false;
 
 const previewDOM = document.getElementById("preview-box");
@@ -107,7 +109,7 @@ function updateFocusVisuals() {
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
-        if (isBroadcasting || isSleeping) return;
+        if (isBroadcasting || isSleeping || !trackingReady) return;
         if (currentTier === 1) {
             activeRowIndex = (activeRowIndex + 1) % characterTree.length;
         } else {
@@ -119,7 +121,7 @@ function startMasterScanLoop() {
 }
 
 function executeSelectionAction() {
-    if (isBroadcasting) return;
+    if (isBroadcasting || !trackingReady) return;
     let targetId = currentTier === 1 ? `cell-${activeRowIndex}` : `cell-${activeColIndex}`;
     let targetElement = document.getElementById(targetId);
     if (targetElement) targetElement.classList.add("trigger-flash");
@@ -189,35 +191,47 @@ async function setupWebcam() {
             canvas.height = video.videoHeight;
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
+            
+            // Safety lockout: wait 7 seconds for the camera exposure to settle before enabling blink detection
+            setTimeout(() => {
+                trackingReady = true;
+                videoContainerDOM.style.borderColor = "#007aff"; 
+            }, 7000);
+            
             requestAnimationFrame(analyzePixelsLoop);
         });
     } catch (err) { console.log("Init handled"); }
 }
 
+// --- UPGRADED HIGH-ACCURACY RED SPECTRAL CHROMINANCE EYE TRACKER ---
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
-        let totalBrightness = 0, pointsCount = 0;
+        let totalRed = 0, pointsCount = 0;
+        
+        // Track the raw blood-vessel color absorption signature of the eyelid skin
         for (let i = 0; i < data.length; i += 4) {
-            totalBrightness += (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]);
+            totalRed += data[i]; 
             pointsCount++;
         }
-        const currentBrightness = totalBrightness / pointsCount;
-        if (baselineBrightness === null) { baselineBrightness = currentBrightness; }
-        const brightnessDiff = currentBrightness - baselineBrightness;
+        const currentRed = totalRed / pointsCount;
 
-        if (brightnessDiff > 3) { 
-            if (!eyesWereClosed) {
+        if (baselineRed === null) { baselineRed = currentRed; }
+        const redVariance = currentRed - baselineRed;
+
+        // A value greater than 2 points captures subtle micro-movements of the eyelid
+        if (redVariance > 2) { 
+            if (!eyesWereClosed && trackingReady) {
                 eyesWereClosed = true; 
                 videoContainerDOM.style.borderColor = "#30d158"; 
                 setTimeout(() => { videoContainerDOM.style.borderColor = "#007aff"; }, 300);
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
         } else { eyesWereClosed = false; }
-        baselineBrightness = baselineBrightness * 0.95 + currentBrightness * 0.05;
+        baselineRed = baselineRed * 0.93 + currentRed * 0.07;
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
 }
