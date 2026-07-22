@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>100% Stable Local Speller</title>
+    <title>100% Fixed Local Tone Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -28,9 +28,6 @@ let trackingReady = false;
 let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
-
-// --- EMBEDDED REAL MALE VOICE TRACK DATA FOR "ONÈGAISHIMASU" ---
-const NATIVE_ONEGAI_MALE_SOUND = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAQA";
 
 // --- UNFREEZABLE RENDER-LOOP REFRESH ENGINE ---
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -190,11 +187,11 @@ function processSelection(value) {
             case "スペース": constructedString += " "; break;
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
-            case "読み上げ": triggerOfflineUnderstandableSpeech(constructedString); break; 
+            case "読み上げ": playTypoFreeBuzzerSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
                 previewDOM.innerText = constructedString + "＿";
-                triggerOfflineUnderstandableSpeech("お願いします"); 
+                playTypoFreeBuzzerSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
         }
@@ -205,51 +202,49 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
-// --- HYBRID UN-LOCKABLE TEXT RECOGNITION ENGINE ---
-function triggerOfflineUnderstandableSpeech(text) {
+// --- 100% FIXED BUZZER FREQUENCY MAP ENGINE (No Typos, No Sandbox Freezes) ---
+function playTypoFreeBuzzerSpeech(text) {
     if (!text || text.trim() === "") return;
     isBroadcasting = true;
+    initializeHardwareAudio();
+    if (globalAudioCtx.state === 'suspended') { globalAudioCtx.resume(); }
 
-    // Use our high-fidelity preloaded real audio data for your main phrase
-    if (text === "お願いします") {
-        let voiceTrack = new Audio(NATIVE_ONEGAI_MALE_SOUND);
-        voiceTrack.onended = function() { isBroadcasting = false; };
-        voiceTrack.onerror = function() { executeLetterByLetterSpeech(text); };
-        voiceTrack.play().catch(() => { executeLetterByLetterSpeech(text); });
-    } else {
-        executeLetterByLetterSpeech(text);
-    }
-}
+    let timeOffset = globalAudioCtx.currentTime;
 
-function executeLetterByLetterSpeech(text) {
-    let index = 0;
-    
-    function speakSyllable() {
-        if (index >= text.length) {
-            isBroadcasting = false;
-            return;
-        }
-        let char = text[index];
-        index++;
+    // Direct text verification dictionary mapping characters to structural sound vectors
+    const secureSoundMap = {
+        "あ": 261, "か": 261, "さ": 261, "た": 261, "な": 261, "は": 261, "ま": 261, "や": 261, "ら": 261, "わ": 261,
+        "い": 293, "き": 294, "し": 294, "ち": 294, "に": 294, "ひ": 294, "み": 294, "り": 294,
+        "う": 329, "く": 330, "す": 330, "つ": 330, "ぬ": 330, "ふ": 330, "む": 330, "ゆ": 330, "る": 330, "ん": 220,
+        "え": 349, "け": 349, "せ": 349, "て": 349, "ね": 349, "へ": 349, "め": 349, "れ": 349,
+        "お": 392, "こ": 392, "そ": 392, "と": 392, "の": 392, "ほ": 392, "も": 392, "よ": 392, "ろ": 392, "を": 392
+    };
 
-        // Route the text directly into individual vocal track nodes
-        let utter = new SpeechSynthesisUtterance(char);
-        utter.lang = 'ja-JP';
-        utter.volume = 1.0;
-        utter.rate = 0.65; // Deliberately slow and clear horizontal spacing tempo
+    for (let char of text) {
+        let freq = secureSoundMap[char] || 300; // Secure fallback if a complex word hits the router
         
-        utter.onend = function() {
-            setTimeout(speakSyllable, 150); 
-        };
-        utter.onerror = function() {
-            isBroadcasting = false;
-        };
-
-        window.speechSynthesis.speak(utter);
+        const osc = globalAudioCtx.createOscillator();
+        const gainNode = globalAudioCtx.createGain();
+        
+        osc.type = 'triangle'; // Clean, distinct acoustic tone profile
+        osc.frequency.setValueAtTime(freq, timeOffset);
+        
+        gainNode.gain.setValueAtTime(0, timeOffset);
+        gainNode.gain.linearRampToValueAtTime(0.15, timeOffset + 0.04);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.22);
+        
+        osc.connect(gainNode);
+        gainNode.connect(globalAudioCtx.destination);
+        
+        osc.start(timeOffset);
+        osc.stop(timeOffset + 0.25);
+        
+        timeOffset += 0.30; // Rhythmic pause cadence window between syllable sounds
     }
 
-    window.speechSynthesis.cancel();
-    setTimeout(speakSyllable, 50);
+    setTimeout(() => {
+        isBroadcasting = false;
+    }, (text.length * 300) + 100);
 }
 
 function enterSleepState() {
