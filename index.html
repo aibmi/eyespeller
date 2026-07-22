@@ -27,6 +27,7 @@
 let trackingReady = false; 
 let cameraUnlocked = false;
 let cooldownActive = false; 
+let globalAudioCtx = null; // Persisted hardware node to bypass sandbox locks
 
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
@@ -74,19 +75,40 @@ const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
 const videoContainerDOM = document.getElementById("video-container");
 
+// --- CORE UNMUTED HARDWARE SIGNAL DRIVER ---
+function initializeHardwareAudio() {
+    if (!globalAudioCtx) {
+        globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Unlocks speech synthesis systems by firing a blank sound frame instantly
+        let silentBuffer = globalAudioCtx.createBuffer(1, 1, 22050);
+        let silentSource = globalAudioCtx.createBufferSource();
+        silentSource.buffer = silentBuffer;
+        silentSource.connect(globalAudioCtx.destination);
+        silentSource.start(0);
+
+        // Warm up and prime the Speech Synthesis sub-engine
+        let warmupSpeech = new SpeechSynthesisUtterance("");
+        window.speechSynthesis.speak(warmupSpeech);
+    }
+}
+
 function playBlinkConfirmationSound() {
     try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
+        initializeHardwareAudio();
+        if (globalAudioCtx.state === 'suspended') {
+            globalAudioCtx.resume();
+        }
+        const oscillator = globalAudioCtx.createOscillator();
+        const gainNode = globalAudioCtx.createGain();
         oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
-        gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); 
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+        oscillator.frequency.setValueAtTime(880, globalAudioCtx.currentTime); 
+        gainNode.gain.setValueAtTime(0.15, globalAudioCtx.currentTime); 
+        gainNode.gain.exponentialRampToValueAtTime(0.001, globalAudioCtx.currentTime + 0.12);
         oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        gainNode.connect(globalAudioCtx.destination);
         oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.12);
+        oscillator.stop(globalAudioCtx.currentTime + 0.12);
     } catch (e) {}
 }
 
@@ -166,7 +188,6 @@ function executeSelectionAction() {
     }, 2500);
 }
 
-// --- FIXED WORD ROUTER MATCHING THE "読み上げ" LABEL ---
 function processSelection(value) {
     if (value === "前") { returnToTier1(); return; }
     if (activeRowIndex === 10) { 
@@ -174,7 +195,7 @@ function processSelection(value) {
             case "スペース": constructedString += " "; break;
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
-            case "読み上げ": broadcastSentence(constructedString); break; // Clean label string map
+            case "読み上げ": broadcastSentence(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
                 previewDOM.innerText = constructedString + "＿";
@@ -189,15 +210,30 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
+// --- FIXED SANDBOX SPEECH ENGINE VIA NATIVE PIPELINE HOOKS ---
 function broadcastSentence(textToSpeak) {
     if (textToSpeak.trim() === "") return;
     isBroadcasting = true;
+    
+    // Completely clear out any stuck audio units stuck in browser stack
+    window.speechSynthesis.cancel();
+    
     let speechUnit = new SpeechSynthesisUtterance(textToSpeak);
     speechUnit.lang = 'ja-JP';
     speechUnit.volume = 1.0; 
     speechUnit.rate = 0.85;  
-    speechUnit.onend = function() { isBroadcasting = false; };
-    window.speechSynthesis.speak(speechUnit);
+    
+    speechUnit.onend = function() {
+        isBroadcasting = false;
+    };
+    speechUnit.onerror = function() {
+        isBroadcasting = false;
+    };
+    
+    // Force a secondary thread call to slip through WKWebView restriction filters
+    setTimeout(() => {
+        window.speechSynthesis.speak(speechUnit);
+    }, 50);
 }
 
 function enterSleepState() {
@@ -260,6 +296,7 @@ function analyzePixelsLoop() {
         if (lateralMotionRatio > 0.1 && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
+            initializeHardwareAudio(); // Prime unmuted hardware pipeline the instant video starts flowing
         }
         if (lateralMotionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
             if (!motionTriggered && trackingReady) {
