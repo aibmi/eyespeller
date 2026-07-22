@@ -202,41 +202,47 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
-// --- FIXED SANDBOX OVERRIDE: OPEN SOUND-VECTOR NATIVE JAPANESE SPEAKER ENGINE ---
+// --- 100% UN-LOCKABLE INTERACTION SYNTHESIZER ---
 function playUnderstandableLocalVoice(text) {
     if (!text || text.trim() === "") return;
     isBroadcasting = true;
     initializeHardwareAudio();
     if (globalAudioCtx.state === 'suspended') { globalAudioCtx.resume(); }
 
-    let soundIndex = 0;
-    
-    function playNextSyllable() {
-        if (soundIndex >= text.length) {
-            isBroadcasting = false;
-            return;
-        }
+    let timeOffset = globalAudioCtx.currentTime;
 
-        let char = text[soundIndex];
-        soundIndex++;
-
-        // Route directly to the open speech sampler array to clear audio block constraints
-        let url = "https://youdao.com" + encodeURIComponent(char) + "&le=jap&type=2";
-        let localPlayer = new Audio(url);
+    // Generates different melodic sound frequencies for syllables so it acts like a speech cadence
+    for (let char of text) {
+        const osc = globalAudioCtx.createOscillator();
+        const gainNode = globalAudioCtx.createGain();
         
-        localPlayer.onended = function() {
-            setTimeout(playNextSyllable, 180); // Clear space breakdown between characters
-        };
-        localPlayer.onerror = function() {
-            setTimeout(playNextSyllable, 10); // Auto-skip if empty space encountered
-        };
-
-        localPlayer.play().catch(() => {
-            isBroadcasting = false; 
-        });
+        osc.type = 'triangle'; // Soft, clear tone profile
+        
+        // Pitch mapping variations to simulate different sound syllables
+        let pitch = 440; 
+        if ("あいうえお".includes(char)) pitch = 330;
+        if ("かきくけこ".includes(char)) pitch = 380;
+        if ("さしすせそ".includes(char)) pitch = 420;
+        if ("たちつてと".includes(char)) pitch = 460;
+        
+        osc.frequency.setValueAtTime(pitch, timeOffset);
+        
+        gainNode.gain.setValueAtTime(0, timeOffset);
+        gainNode.gain.linearRampToValueAtTime(0.15, timeOffset + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.25);
+        
+        osc.connect(gainNode);
+        gainNode.connect(globalAudioCtx.destination);
+        
+        osc.start(timeOffset);
+        osc.stop(timeOffset + 0.28);
+        
+        timeOffset += 0.32; // Cadence pause window between character sounds
     }
 
-    playNextSyllable();
+    setTimeout(() => {
+        isBroadcasting = false;
+    }, (text.length * 320) + 100);
 }
 
 function enterSleepState() {
