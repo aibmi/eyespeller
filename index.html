@@ -24,7 +24,7 @@
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
     </div>
 <script>
-let trackingReady = false; // Freeze flag to prevent false triggers on refresh
+let trackingReady = false; 
 
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
@@ -72,6 +72,24 @@ const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
 const videoContainerDOM = document.getElementById("video-container");
 
+function playBlinkConfirmationSound() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
+        gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); 
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {
+        console.error("Audio error:", e);
+    }
+}
+
 function buildTier1UI() {
     matrixDOM.innerHTML = "";
     matrixDOM.style.gridTemplateColumns = "repeat(4, 1fr)";
@@ -84,7 +102,6 @@ function buildTier1UI() {
     });
     updateFocusVisuals();
 }
-
 function buildTier2UI(rowIndex) {
     matrixDOM.innerHTML = "";
     const activeRowItems = characterTree[rowIndex].items;
@@ -125,6 +142,9 @@ function executeSelectionAction() {
     let targetId = currentTier === 1 ? `cell-${activeRowIndex}` : `cell-${activeColIndex}`;
     let targetElement = document.getElementById(targetId);
     if (targetElement) targetElement.classList.add("trigger-flash");
+    
+    playBlinkConfirmationSound(); 
+
     setTimeout(() => {
         if (currentTier === 1) {
             currentTier = 2;
@@ -191,19 +211,15 @@ async function setupWebcam() {
             canvas.height = video.videoHeight;
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
-            
-            // Safety lockout: wait 7 seconds for the camera exposure to settle before enabling blink detection
             setTimeout(() => {
                 trackingReady = true;
                 videoContainerDOM.style.borderColor = "#007aff"; 
             }, 7000);
-            
             requestAnimationFrame(analyzePixelsLoop);
         });
     } catch (err) { console.log("Init handled"); }
 }
 
-// --- UPGRADED HIGH-ACCURACY RED SPECTRAL CHROMINANCE EYE TRACKER ---
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     try {
@@ -211,19 +227,14 @@ function analyzePixelsLoop() {
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
         let totalRed = 0, pointsCount = 0;
-        
-        // Track the raw blood-vessel color absorption signature of the eyelid skin
         for (let i = 0; i < data.length; i += 4) {
             totalRed += data[i]; 
             pointsCount++;
         }
         const currentRed = totalRed / pointsCount;
-
         if (baselineRed === null) { baselineRed = currentRed; }
         const redVariance = currentRed - baselineRed;
-
-        // A value greater than 2 points captures subtle micro-movements of the eyelid
-        if (redVariance > 2) { 
+        if (redVariance > 1.5) { 
             if (!eyesWereClosed && trackingReady) {
                 eyesWereClosed = true; 
                 videoContainerDOM.style.borderColor = "#30d158"; 
@@ -231,7 +242,7 @@ function analyzePixelsLoop() {
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
         } else { eyesWereClosed = false; }
-        baselineRed = baselineRed * 0.93 + currentRed * 0.07;
+        baselineRed = baselineRed * 0.88 + currentRed * 0.12;
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
 }
