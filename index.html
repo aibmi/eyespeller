@@ -26,6 +26,7 @@
 <script>
 let trackingReady = false; 
 let cameraUnlocked = false;
+let cooldownActive = false; // Security gate flag to prevent rapid double-clicks
 
 (function handleAutoRefresh() {
     const FIVE_MINUTES = 5 * 60 * 1000;
@@ -137,7 +138,11 @@ function startMasterScanLoop() {
 }
 
 function executeSelectionAction() {
-    if (isBroadcasting || !trackingReady) return;
+    if (isBroadcasting || !trackingReady || cooldownActive) return;
+    
+    cooldownActive = true; // Lock out sensor inputs immediately
+    videoContainerDOM.style.borderColor = "#ff3b30"; // Turn border Red to show sensor is locked
+    
     let targetId = currentTier === 1 ? `cell-${activeRowIndex}` : `cell-${activeColIndex}`;
     let targetElement = document.getElementById(targetId);
     if (targetElement) targetElement.classList.add("trigger-flash");
@@ -154,6 +159,12 @@ function executeSelectionAction() {
             processSelection(selectedItem);
         }
     }, 150);
+
+    // Release lockout and turn border back to Blue exactly 2.5 seconds later
+    setTimeout(() => {
+        cooldownActive = false;
+        if (cameraUnlocked) videoContainerDOM.style.borderColor = "#007aff";
+    }, 2500);
 }
 
 function processSelection(value) {
@@ -210,8 +221,6 @@ async function setupWebcam() {
             canvas.height = video.videoHeight;
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
-            
-            // Wait 6 seconds for the camera feed exposure to settle
             setTimeout(() => {
                 trackingReady = true;
             }, 6000);
@@ -220,7 +229,6 @@ async function setupWebcam() {
     } catch (err) {}
 }
 
-// --- SELF-ACTIVATING HIGH-SENSITIVITY LATERAL SHIFT ENGINE ---
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     try {
@@ -243,7 +251,6 @@ function analyzePixelsLoop() {
             for (let x = 8; x < w - 8; x += 4) {
                 let idx = (y * w + x) * 4;
                 let currentCenter = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-                
                 let prevLeftNeighbor = (prevFrameData[idx - 8] + prevFrameData[idx - 7] + prevFrameData[idx - 6]) / 3;
                 let prevRightNeighbor = (prevFrameData[idx + 8] + prevFrameData[idx + 9] + prevFrameData[idx + 10]) / 3;
                 
@@ -256,18 +263,15 @@ function analyzePixelsLoop() {
 
         let lateralMotionRatio = (lateralShiftPixels / totalChecked) * 100;
 
-        // Visual feedback sandbox patch
         if (lateralMotionRatio > 0.1 && !cameraUnlocked) {
             cameraUnlocked = true;
-            videoContainerDOM.style.borderColor = "#007aff"; // Frame changes to Blue to confirm sandboxed data is unlocked
+            if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
         }
 
-        // Hyper-sensitive threshold set to 0.5 to register tiny twitches effortlessly
-        if (lateralMotionRatio > 0.5 && cameraUnlocked) { 
+        // Only register signals if a cooldown lockout isn't currently running
+        if (lateralMotionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
-                videoContainerDOM.style.borderColor = "#30d158"; // Flashes Green on trigger
-                setTimeout(() => { videoContainerDOM.style.borderColor = "#007aff"; }, 500);
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
         } else if (lateralMotionRatio < 0.2) {
