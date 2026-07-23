@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3-Second Head Motion Speller</title>
+    <title>2-Second Calibrated Head Motion Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -36,7 +36,8 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-const FIVE_MINUTES = 5 * 60 * 1000;
+// --- UNFREEZABLE RENDER-LOOP REFRESH ENGINE (Tuned to 10 Minutes flat) ---
+const TEN_MINUTES = 10 * 60 * 1000; 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 let lastRefreshCheckTime = Date.now();
 
@@ -54,7 +55,7 @@ function processActiveUnfreezableRefresh() {
         localStorage.removeItem('ios_voice_authorized_token'); 
         return; 
     }
-    if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
+    if (NOW - lastRefreshCheckTime >= TEN_MINUTES) {
         window.location.reload();
     }
 }
@@ -95,6 +96,7 @@ let isSleeping = false;
 let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
+let firstItemHoldDelayActive = false; // Flag to hold the scan timing baseline focus
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
@@ -156,10 +158,21 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
+// --- OPTIMIZED HYBRID CADENCE INTERVAL TIMER SCANNER ---
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
-    loopInterval = setInterval(() => {
+    
+    let executeScanCycleTick = () => {
         if (isBroadcasting || isSleeping || !trackingReady) return;
+        
+        // If an initial hold is requested on entry, wait for an extra 1000ms delay pass
+        if (firstItemHoldDelayActive) {
+            firstItemHoldDelayActive = false;
+            clearInterval(loopInterval);
+            loopInterval = setInterval(executeScanCycleTick, 2000); // Resume regular fast 2.0s pace
+            return;
+        }
+
         if (currentTier === 1) {
             activeRowIndex = (activeRowIndex + 1) % characterTree.length;
         } else {
@@ -167,7 +180,10 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 3000); 
+    };
+
+    // Standard high-speed 2-second base intervals
+    loopInterval = setInterval(executeScanCycleTick, 2000); 
 }
 
 function executeSelectionAction() {
@@ -187,6 +203,28 @@ function executeSelectionAction() {
             currentTier = 2;
             activeColIndex = 0;
             buildTier2UI(activeRowIndex);
+            
+            // ACTIVATE TIER-2 INITIAL HOLD: Forces an extra 1.0 second pause on index item 0
+            firstItemHoldDelayActive = true;
+            clearInterval(loopInterval);
+            loopInterval = setInterval(() => {
+                // Temporary 3000ms window (2000ms base speed + 1000ms extra padding)
+                firstItemHoldDelayActive = false;
+                clearInterval(loopInterval);
+                loopInterval = setInterval(function() {
+                    if (!isBroadcasting && !isSleeping && trackingReady) {
+                        const maxCols = characterTree[activeRowIndex].items.length;
+                        activeColIndex = (activeColIndex + 1) % maxCols;
+                        updateFocusVisuals();
+                    }
+                }, 2000); // Snap back down to 2-second rate
+                if (!isBroadcasting && !isSleeping && trackingReady) {
+                    const maxCols = characterTree[activeRowIndex].items.length;
+                    activeColIndex = (activeColIndex + 1) % maxCols;
+                    updateFocusVisuals();
+                }
+            }, 3000); 
+            
         } else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
             processSelection(selectedItem);
@@ -199,19 +237,18 @@ function executeSelectionAction() {
     }, 2500);
 }
 
-// --- FIXED MULTI-ROUTER FOR SPACING AND DIRECT VERBAL SHORTCUTS ---
 function processSelection(value) {
     if (value === "前") { returnToTier1(); return; }
     if (activeRowIndex === 10) { 
         switch(value) {
-            case "スペース": constructedString += "　"; break; // Fixed text-space map boundary
+            case "スペース": constructedString += "　"; break; 
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
                 previewDOM.innerText = constructedString == "" ? "＿" : constructedString + "＿";
-                broadcastTrueIphoneSpeech("お願いします"); // Clean route to unmuted system speech
+                broadcastTrueIphoneSpeech("お願いします"); 
                 returnToTier1();
                 return;
             case "休止モード": enterSleepState(); return;
@@ -221,7 +258,7 @@ function processSelection(value) {
     returnToTier1();
 }
 
-function returnToTier1() { currentTier = 1; buildTier1UI(); }
+function returnToTier1() { currentTier = 1; activeRowIndex = 0; buildTier1UI(); }
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
