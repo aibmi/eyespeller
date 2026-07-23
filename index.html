@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>100% Persistent Local Voice Speller</title>
+    <title>3-Second Head Motion Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -14,14 +14,12 @@
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
         
-        /* Persistent iOS Security Overlay Prompt Layout */
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
     </style>
 </head>
 <body>
 
-    <!-- Security Overlay Gate Target Layout -->
     <div id="voice-gate-overlay">
         <button id="voice-gate-btn">音声許可のためにここをタッチしてください<br><span style="font-size:20px; font-weight:normal; display:block; margin-top:10px;">Touch here to allow voice</span></button>
     </div>
@@ -38,7 +36,6 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-// --- UNFREEZABLE RENDER-LOOP REFRESH TIMERS ---
 const FIVE_MINUTES = 5 * 60 * 1000;
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 let lastRefreshCheckTime = Date.now();
@@ -54,7 +51,7 @@ function processActiveUnfreezableRefresh() {
     const NOW = Date.now();
     if (NOW - startTime >= TWENTY_FOUR_HOURS) {
         localStorage.removeItem('bluefy_refresh_start');
-        localStorage.removeItem('ios_voice_authorized_token'); // Cleanup token at expiration
+        localStorage.removeItem('ios_voice_authorized_token'); 
         return; 
     }
     if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
@@ -62,21 +59,16 @@ function processActiveUnfreezableRefresh() {
     }
 }
 
-// --- HARDWARE INTERACTION UNLOCK OVERRIDE ENGINE ---
 document.getElementById('voice-gate-btn').addEventListener('click', () => {
-    localStorage.setItem('ios_voice_authorized_token', 'true'); // Save persistent security authorization token
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Dismiss prompt layout screen
-    
+    localStorage.setItem('ios_voice_authorized_token', 'true'); 
+    document.getElementById('voice-gate-overlay').style.display = 'none'; 
     initializeHardwareAudio();
-    
-    // Fire an immediate native hardware voice sample packet pass to open system muting constraints
     let warmupSpeech = new SpeechSynthesisUtterance("");
     window.speechSynthesis.speak(warmupSpeech);
 });
 
-// Check persistent token memory on launch loop context
 if (localStorage.getItem('ios_voice_authorized_token') === 'true') {
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Bypass prompt if already tapped today
+    document.getElementById('voice-gate-overlay').style.display = 'none'; 
 }
 
 const characterTree = [
@@ -164,6 +156,7 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
+// --- OPTIMIZED 3-SECOND CURSOR INTERVAL SCANNER ---
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
@@ -175,7 +168,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 4500); 
+    }, 3000); // Shift speed directly to 3.0 seconds flat per tile change
 }
 
 function executeSelectionAction() {
@@ -229,7 +222,6 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
-// --- TRUE LOCAL IPHONE MALE SPEECH UTTERANCE ROUTER ENGINE ---
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -238,9 +230,8 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     window.speechSynthesis.cancel(); 
     let utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.lang = 'ja-JP';
-    utterance.rate = 0.85; // Natural spoken cadence speed
+    utterance.rate = 0.85; 
     
-    // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
     let systemVoices = window.speechSynthesis.getVoices();
     let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
     if (maleVoice) utterance.voice = maleVoice;
@@ -314,12 +305,17 @@ function analyzePixelsLoop() {
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
             initializeHardwareAudio(); 
         }
-        if (lateralMotionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
+        
+        // --- CALIBRATED MOTION TRACKER ENTRY ---
+        // Threshold bumped slightly to 0.9 to smoothly filter out minor resting head drift
+        if (lateralMotionRatio > 0.9 && cameraUnlocked && !cooldownActive) { 
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (lateralMotionRatio < 0.2) { motionTriggered = false; }
+        } else if (lateralMotionRatio < 0.2) {
+            motionTriggered = false; 
+        }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
