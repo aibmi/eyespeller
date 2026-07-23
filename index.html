@@ -36,7 +36,7 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-// --- UNFREEZABLE RENDER-LOOP REFRESH ENGINE (Tuned to 10 Minutes flat) ---
+// --- 10-MINUTE PERSISTENT REFRESH LOOP ---
 const TEN_MINUTES = 10 * 60 * 1000; 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 let lastRefreshCheckTime = Date.now();
@@ -96,11 +96,7 @@ let isSleeping = false;
 let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
-let firstItemHoldDelayActive = false; // Flag to hold the scan timing baseline focus
-
-const previewDOM = document.getElementById("preview-box");
-const matrixDOM = document.getElementById("matrix");
-const videoContainerDOM = document.getElementById("video-container");
+let tierEntryTimestamp = 0; // Timestamp to calculate the extra 1-second pause on entry
 
 function initializeHardwareAudio() {
     if (!globalAudioCtx) {
@@ -158,19 +154,20 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
-// --- OPTIMIZED HYBRID CADENCE INTERVAL TIMER SCANNER ---
+// --- FIXED UNIFIED 2-SECOND TIMER SCANNER ---
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
-    
-    let executeScanCycleTick = () => {
+    loopInterval = setInterval(() => {
         if (isBroadcasting || isSleeping || !trackingReady) return;
         
-        // If an initial hold is requested on entry, wait for an extra 1000ms delay pass
-        if (firstItemHoldDelayActive) {
-            firstItemHoldDelayActive = false;
-            clearInterval(loopInterval);
-            loopInterval = setInterval(executeScanCycleTick, 2000); // Resume regular fast 2.0s pace
-            return;
+        // Check if we just entered a new sub-menu tier
+        if (currentTier === 2 && activeColIndex === 0 && tierEntryTimestamp > 0) {
+            let elapsedSinceEntry = Date.now() - tierEntryTimestamp;
+            // Hold focus on the first letter until a total of 3 seconds (2000ms base + 1000ms padding) passes
+            if (elapsedSinceEntry < 3000) {
+                return; // Skip this tick to create the extra 1-second wait safely
+            }
+            tierEntryTimestamp = 0; // Clear flag and allow normal movement on next ticks
         }
 
         if (currentTier === 1) {
@@ -180,10 +177,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    };
-
-    // Standard high-speed 2-second base intervals
-    loopInterval = setInterval(executeScanCycleTick, 2000); 
+    }, 2000); // Steady, reliable 2.0 second base speed
 }
 
 function executeSelectionAction() {
@@ -203,28 +197,7 @@ function executeSelectionAction() {
             currentTier = 2;
             activeColIndex = 0;
             buildTier2UI(activeRowIndex);
-            
-            // ACTIVATE TIER-2 INITIAL HOLD: Forces an extra 1.0 second pause on index item 0
-            firstItemHoldDelayActive = true;
-            clearInterval(loopInterval);
-            loopInterval = setInterval(() => {
-                // Temporary 3000ms window (2000ms base speed + 1000ms extra padding)
-                firstItemHoldDelayActive = false;
-                clearInterval(loopInterval);
-                loopInterval = setInterval(function() {
-                    if (!isBroadcasting && !isSleeping && trackingReady) {
-                        const maxCols = characterTree[activeRowIndex].items.length;
-                        activeColIndex = (activeColIndex + 1) % maxCols;
-                        updateFocusVisuals();
-                    }
-                }, 2000); // Snap back down to 2-second rate
-                if (!isBroadcasting && !isSleeping && trackingReady) {
-                    const maxCols = characterTree[activeRowIndex].items.length;
-                    activeColIndex = (activeColIndex + 1) % maxCols;
-                    updateFocusVisuals();
-                }
-            }, 3000); 
-            
+            tierEntryTimestamp = Date.now(); // Set the exact timestamp on sub-menu entry
         } else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
             processSelection(selectedItem);
@@ -281,7 +254,7 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
 
 function enterSleepState() {
     isSleeping = true;
-    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休止中 (首を振って再開)</div>";
+    matrixDOM.innerHTML = "<div class='grid-button active-focus' id='sleep-btn' style='grid-column: span 4; background: #000; border-color: #222; color: #555;'>💤 休室中 (首を振って再開)</div>";
 }
 
 function exitSleepState() { isSleeping = false; returnToTier1(); }
