@@ -105,7 +105,6 @@ function initializeHardwareAudio() {
         globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 }
-
 function playBlinkConfirmationSound() {
     try {
         initializeHardwareAudio();
@@ -135,6 +134,7 @@ function buildTier1UI() {
     });
     updateFocusVisuals();
 }
+
 function buildTier2UI(rowIndex) {
     matrixDOM.innerHTML = "";
     const activeRowItems = characterTree[rowIndex].items;
@@ -156,7 +156,6 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
-// --- OPTIMIZED 3-SECOND CURSOR INTERVAL SCANNER ---
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
@@ -168,7 +167,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 3000); // Shift speed directly to 3.0 seconds flat per tile change
+    }, 3000); 
 }
 
 function executeSelectionAction() {
@@ -200,19 +199,21 @@ function executeSelectionAction() {
     }, 2500);
 }
 
+// --- FIXED MULTI-ROUTER FOR SPACING AND DIRECT VERBAL SHORTCUTS ---
 function processSelection(value) {
     if (value === "前") { returnToTier1(); return; }
     if (activeRowIndex === 10) { 
         switch(value) {
-            case "スペース": constructedString += " "; break;
+            case "スペース": constructedString += "　"; break; // Fixed text-space map boundary
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
-                previewDOM.innerText = constructedString + "＿";
-                broadcastTrueIphoneSpeech("お願いします"); 
-                break;
+                previewDOM.innerText = constructedString == "" ? "＿" : constructedString + "＿";
+                broadcastTrueIphoneSpeech("お願いします"); // Clean route to unmuted system speech
+                returnToTier1();
+                return;
             case "休止モード": enterSleepState(); return;
         }
     } else { constructedString += value; }
@@ -221,7 +222,6 @@ function processSelection(value) {
 }
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
-
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -271,9 +271,7 @@ async function setupWebcam() {
 
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
-    
     processActiveUnfreezableRefresh();
-
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -305,17 +303,12 @@ function analyzePixelsLoop() {
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
             initializeHardwareAudio(); 
         }
-        
-        // --- CALIBRATED MOTION TRACKER ENTRY ---
-        // Threshold bumped slightly to 0.9 to smoothly filter out minor resting head drift
         if (lateralMotionRatio > 0.9 && cameraUnlocked && !cooldownActive) { 
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (lateralMotionRatio < 0.2) {
-            motionTriggered = false; 
-        }
+        } else if (lateralMotionRatio < 0.2) { motionTriggered = false; }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
