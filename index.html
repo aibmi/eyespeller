@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>100% Stable Consonant Synth Speller</title>
+    <title>100% Persistent Local Voice Speller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
@@ -13,9 +13,18 @@
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        
+        /* Persistent iOS Security Overlay Prompt Layout */
+        #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
+        #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
     </style>
 </head>
 <body>
+
+    <!-- Security Overlay Gate Target Layout -->
+    <div id="voice-gate-overlay">
+        <button id="voice-gate-btn">音声許可のためにここをタッチしてください<br><span style="font-size:20px; font-weight:normal; display:block; margin-top:10px;">Touch here to allow voice</span></button>
+    </div>
 
     <div id="preview-box">＿</div>
     <div id="matrix"></div>
@@ -29,7 +38,7 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-// --- UNFREEZABLE RENDER-LOOP REFRESH ENGINE ---
+// --- UNFREEZABLE RENDER-LOOP REFRESH TIMERS ---
 const FIVE_MINUTES = 5 * 60 * 1000;
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 let lastRefreshCheckTime = Date.now();
@@ -45,11 +54,29 @@ function processActiveUnfreezableRefresh() {
     const NOW = Date.now();
     if (NOW - startTime >= TWENTY_FOUR_HOURS) {
         localStorage.removeItem('bluefy_refresh_start');
+        localStorage.removeItem('ios_voice_authorized_token'); // Cleanup token at expiration
         return; 
     }
     if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
         window.location.reload();
     }
+}
+
+// --- HARDWARE INTERACTION UNLOCK OVERRIDE ENGINE ---
+document.getElementById('voice-gate-btn').addEventListener('click', () => {
+    localStorage.setItem('ios_voice_authorized_token', 'true'); // Save persistent security authorization token
+    document.getElementById('voice-gate-overlay').style.display = 'none'; // Dismiss prompt layout screen
+    
+    initializeHardwareAudio();
+    
+    // Fire an immediate native hardware voice sample packet pass to open system muting constraints
+    let warmupSpeech = new SpeechSynthesisUtterance("");
+    window.speechSynthesis.speak(warmupSpeech);
+});
+
+// Check persistent token memory on launch loop context
+if (localStorage.getItem('ios_voice_authorized_token') === 'true') {
+    document.getElementById('voice-gate-overlay').style.display = 'none'; // Bypass prompt if already tapped today
 }
 
 const characterTree = [
@@ -187,11 +214,11 @@ function processSelection(value) {
             case "スペース": constructedString += " "; break;
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
-            case "読み上げ": playSplicedConsonantSpeech(constructedString); break; 
+            case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
                 previewDOM.innerText = constructedString + "＿";
-                playSplicedConsonantSpeech("お願いします"); 
+                broadcastTrueIphoneSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
         }
@@ -201,82 +228,27 @@ function processSelection(value) {
 }
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
-function playSplicedConsonantSpeech(text) {
-    if (!text || text.trim() === "") return;
+
+// --- TRUE LOCAL IPHONE MALE SPEECH UTTERANCE ROUTER ENGINE ---
+function broadcastTrueIphoneSpeech(textToSpeak) {
+    if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
     initializeHardwareAudio();
-    if (globalAudioCtx.state === 'suspended') { globalAudioCtx.resume(); }
-
-    let timeOffset = globalAudioCtx.currentTime;
-
-    const syllablesMap = {
-        "あ": {vow: 135, con: 0},   "か": {vow: 140, con: 1},   "さ": {vow: 145, con: 2},   "た": {vow: 150, con: 3},   "な": {vow: 155, con: 0},
-        "は": {vow: 160, con: 4},   "ま": {vow: 165, con: 0},   "や": {vow: 170, con: 0},   "ら": {vow: 175, con: 0},   "わ": {vow: 180, con: 0},
-        "い": {vow: 250, con: 0},   "き": {vow: 255, con: 1},   "し": {vow: 260, con: 2},   "ち": {vow: 265, con: 3},   "に": {vow: 270, con: 0},
-        "ひ": {vow: 275, con: 4},   "み": {vow: 280, con: 0},   "り": {vow: 290, con: 0},
-        "う": {vow: 110, con: 0},   "く": {vow: 115, con: 1},   "す": {vow: 120, con: 2},   "つ": {vow: 125, con: 3},   "ぬ": {vow: 130, con: 0},
-        "ふ": {vow: 105, con: 4},   "む": {vow: 112, con: 0},   "ゆ": {vow: 118, con: 0},   "る": {vow: 122, con: 0},   "ん": {vow: 95,  con: 0},
-        "え": {vow: 190, con: 0},   "け": {vow: 195, con: 1},   "せ": {vow: 200, con: 2},   "て": {vow: 205, con: 3},   "ね": {vow: 210, con: 0},
-        "へ": {vow: 215, con: 4},   "め": {vow: 220, con: 0},   "れ": {vow: 230, con: 0},
-        "お": {vow: 125, con: 0},   "こ": {vow: 128, con: 1},   "そ": {vow: 132, con: 2},   "と": {vow: 136, con: 3},   "の": {vow: 142, con: 0},
-        "ほ": {vow: 146, con: 4},   "も": {vow: 152, con: 0},   "よ": {vow: 158, con: 0},   "ろ": {vow: 164, con: 0},   "を": {vow: 125, con: 0}
-    };
-
-    let noiseBufferSize = globalAudioCtx.sampleRate * 0.08; 
-    let noiseBuffer = globalAudioCtx.createBuffer(1, noiseBufferSize, globalAudioCtx.sampleRate);
-    let noiseOutput = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < noiseBufferSize; i++) {
-        noiseOutput[i] = Math.random() * 2 - 1;
-    }
-
-    for (let char of text) {
-        let nodeData = syllablesMap[char] || {vow: 150, con: 0};
-        
-        if (nodeData.con > 0) {
-            let noiseNode = globalAudioCtx.createBufferSource();
-            let noiseFilter = globalAudioCtx.createBiquadFilter();
-            let noiseGain = globalAudioCtx.createGain();
-            noiseNode.buffer = noiseBuffer;
-            noiseGain.gain.setValueAtTime(0, timeOffset);
-            
-            if (nodeData.con === 1) { 
-                noiseFilter.type = 'bandpass'; noiseFilter.frequency.setValueAtTime(1200, timeOffset);
-                noiseGain.gain.linearRampToValueAtTime(0.25, timeOffset + 0.01);
-            } else if (nodeData.con === 2) { 
-                noiseFilter.type = 'highpass'; noiseFilter.frequency.setValueAtTime(6000, timeOffset);
-                noiseGain.gain.linearRampToValueAtTime(0.18, timeOffset + 0.02);
-            } else if (nodeData.con === 3) { 
-                noiseFilter.type = 'bandpass'; noiseFilter.frequency.setValueAtTime(800, timeOffset);
-                noiseGain.gain.linearRampToValueAtTime(0.35, timeOffset + 0.005);
-            } else if (nodeData.con === 4) { 
-                noiseFilter.type = 'lowpass'; noiseFilter.frequency.setValueAtTime(2500, timeOffset);
-                noiseGain.gain.linearRampToValueAtTime(0.14, timeOffset + 0.03);
-            }
-            
-            noiseGain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.07);
-            noiseNode.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(globalAudioCtx.destination);
-            noiseNode.start(timeOffset); noiseNode.stop(timeOffset + 0.08);
-        }
-
-        const oscCore = globalAudioCtx.createOscillator();
-        const oscBlend = globalAudioCtx.createOscillator();
-        const vocalGain = globalAudioCtx.createGain();
-        
-        oscCore.type = 'sawtooth'; oscCore.frequency.setValueAtTime(nodeData.vow, timeOffset + 0.03);
-        oscBlend.type = 'triangle'; oscBlend.frequency.setValueAtTime(nodeData.vow * 2, timeOffset + 0.03);
-        
-        vocalGain.gain.setValueAtTime(0, timeOffset);
-        vocalGain.gain.linearRampToValueAtTime(0.12, timeOffset + 0.06); 
-        vocalGain.gain.exponentialRampToValueAtTime(0.001, timeOffset + 0.28); 
-        
-        oscCore.connect(vocalGain); oscBlend.connect(vocalGain); vocalGain.connect(globalAudioCtx.destination);
-        oscCore.start(timeOffset); oscBlend.start(timeOffset);
-        oscCore.stop(timeOffset + 0.32); oscBlend.stop(timeOffset + 0.32);
-        
-        timeOffset += 0.36; 
-    }
-
-    setTimeout(() => { isBroadcasting = false; }, (text.length * 360) + 100);
+    
+    window.speechSynthesis.cancel(); 
+    let utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.lang = 'ja-JP';
+    utterance.rate = 0.85; // Natural spoken cadence speed
+    
+    // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
+    let systemVoices = window.speechSynthesis.getVoices();
+    let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
+    if (maleVoice) utterance.voice = maleVoice;
+    
+    utterance.onend = function() { isBroadcasting = false; };
+    utterance.onerror = function() { isBroadcasting = false; };
+    
+    window.speechSynthesis.speak(utterance);
 }
 
 function enterSleepState() {
@@ -308,7 +280,9 @@ async function setupWebcam() {
 
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
+    
     processActiveUnfreezableRefresh();
+
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
