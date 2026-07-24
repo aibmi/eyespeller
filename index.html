@@ -127,6 +127,7 @@ function playBlinkConfirmationSound() {
     } catch (e) {}
 }
 
+// --- FULLY REPAIRED FIXED RENDERING BLOCK PANEL ---
 function buildTier1UI() {
     matrixDOM.innerHTML = "";
     matrixDOM.style.gridTemplateColumns = "repeat(4, 1fr)";
@@ -135,6 +136,7 @@ function buildTier1UI() {
         btn.className = "grid-button";
         btn.id = `cell-${index}`;
         btn.innerText = row.name;
+        matrixDOM.appendChild(btn); // Fixed append command line to prevent dark screens
     });
     updateFocusVisuals();
 }
@@ -172,7 +174,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 4500); // Speed remains perfectly locked at 4.5 seconds per tile change
+    }, 4500); 
 }
 
 function executeSelectionAction() {
