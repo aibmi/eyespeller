@@ -32,7 +32,7 @@
     <div id="video-container">
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
     </div>
-<script>
+    <script>
 let trackingReady = false; 
 let cameraUnlocked = false;
 let cooldownActive = false; 
@@ -143,6 +143,7 @@ function buildTier1UI() {
     });
     updateFocusVisuals();
 }
+
 function buildTier2UI(rowIndex) {
     matrixDOM.innerHTML = "";
     const activeRowItems = characterTree[rowIndex].items;
@@ -163,7 +164,6 @@ function updateFocusVisuals() {
     let targetElement = document.getElementById(activeId);
     if (targetElement) targetElement.classList.add("active-focus");
 }
-
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
@@ -217,7 +217,7 @@ function processSelection(value) {
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
-                previewDOM.innerText = constructedString + "＿";
+                previewDOM.innerText = constructedString == "" ? "＿" : constructedString + "＿";
                 broadcastTrueIphoneSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
@@ -227,9 +227,9 @@ function processSelection(value) {
     returnToTier1();
 }
 
-function returnToTier1() { currentTier = 1; buildTier1UI(); }
+function returnToTier1() { currentTier = 1; activeRowIndex = 0; buildTier1UI(); }
 
-// --- TRUE LOCAL IPHONE MALE SPEECH UTTERANCE ROUTER ENGINE ---
+// --- FIXED & CRASH-PROOFED NATIVE VOICE PIPELINE ---
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -238,12 +238,14 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     window.speechSynthesis.cancel(); 
     let utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.lang = 'ja-JP';
-    utterance.rate = 0.85; // Natural spoken cadence speed
+    utterance.rate = 0.85; 
     
-    // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
+    // Safely query voices array list with a safe null check backup route
     let systemVoices = window.speechSynthesis.getVoices();
-    let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
-    if (maleVoice) utterance.voice = maleVoice;
+    if (systemVoices && systemVoices.length > 0) {
+        let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
+        if (maleVoice) utterance.voice = maleVoice;
+    }
     
     utterance.onend = function() { isBroadcasting = false; };
     utterance.onerror = function() { isBroadcasting = false; };
@@ -280,9 +282,7 @@ async function setupWebcam() {
 
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
-    
     processActiveUnfreezableRefresh();
-
     try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -331,3 +331,4 @@ setupWebcam();
 </script>
 </body>
 </html>
+
