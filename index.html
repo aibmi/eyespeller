@@ -32,7 +32,7 @@
     <div id="video-container">
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
     </div>
-    <script>
+<script>
 let trackingReady = false; 
 let cameraUnlocked = false;
 let cooldownActive = false; 
@@ -54,7 +54,7 @@ function processActiveUnfreezableRefresh() {
     const NOW = Date.now();
     if (NOW - startTime >= TWENTY_FOUR_HOURS) {
         localStorage.removeItem('bluefy_refresh_start');
-        localStorage.removeItem('ios_voice_authorized_token'); // Cleanup token at expiration
+        localStorage.removeItem('ios_voice_authorized_token'); 
         return; 
     }
     if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
@@ -64,19 +64,17 @@ function processActiveUnfreezableRefresh() {
 
 // --- HARDWARE INTERACTION UNLOCK OVERRIDE ENGINE ---
 document.getElementById('voice-gate-btn').addEventListener('click', () => {
-    localStorage.setItem('ios_voice_authorized_token', 'true'); // Save persistent security authorization token
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Dismiss prompt layout screen
+    localStorage.setItem('ios_voice_authorized_token', 'true'); 
+    document.getElementById('voice-gate-overlay').style.display = 'none'; 
     
     initializeHardwareAudio();
     
-    // Fire an immediate native hardware voice sample packet pass to open system muting constraints
     let warmupSpeech = new SpeechSynthesisUtterance("");
     window.speechSynthesis.speak(warmupSpeech);
 });
 
-// Check persistent token memory on launch loop context
 if (localStorage.getItem('ios_voice_authorized_token') === 'true') {
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Bypass prompt if already tapped today
+    document.getElementById('voice-gate-overlay').style.display = 'none'; 
 }
 
 const characterTree = [
@@ -229,7 +227,7 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; activeRowIndex = 0; buildTier1UI(); }
 
-// --- FIXED & CRASH-PROOFED NATIVE VOICE PIPELINE ---
+// --- ZERO-CRASH BULLETPROOF NATIVE APPLE SPEECH ENGINE ---
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -240,13 +238,7 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     utterance.lang = 'ja-JP';
     utterance.rate = 0.85; 
     
-    // Safely query voices array list with a safe null check backup route
-    let systemVoices = window.speechSynthesis.getVoices();
-    if (systemVoices && systemVoices.length > 0) {
-        let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
-        if (maleVoice) utterance.voice = maleVoice;
-    }
-    
+    // Completely removed voice list iteration math to prevent execution-thread freezes
     utterance.onend = function() { isBroadcasting = false; };
     utterance.onerror = function() { isBroadcasting = false; };
     
@@ -331,4 +323,3 @@ setupWebcam();
 </script>
 </body>
 </html>
-
