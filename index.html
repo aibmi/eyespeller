@@ -12,12 +12,14 @@
         .active-focus { border-color: #30d158 !important; background: #1c3d22 !important; box-shadow: 0 0 15px #30d158; }
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
         
+        /* Persistent iOS Security Overlay Prompt Layout */
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
     </style>
 </head>
 <body>
 
+    <!-- Security Overlay Gate Target Layout -->
     <div id="voice-gate-overlay">
         <button id="voice-gate-btn">音声許可のためにここをタッチしてください<br><span style="font-size:20px; font-weight:normal; display:block; margin-top:10px;">Touch here to allow voice</span></button>
     </div>
@@ -34,15 +36,22 @@ let activeRowIndex = 0;
 let activeColIndex = 0;
 let constructedString = "";
 
-// --- RESTORED ORIGINAL WORKABLE AUTO-REFRESH TIMER ---
+// --- ORIGINAL WORKABLE 5-MINUTE AUTO-REFRESH TIMER ---
 setTimeout(() => { window.location.reload(); }, 5 * 60 * 1000); 
 
+// --- FIXED PERSISTENT TOKEN AUTHORIZATION CONTROLLER ---
 document.getElementById('voice-gate-btn').addEventListener('click', () => {
+    localStorage.setItem('ios_voice_authorized_token', 'true'); // Save token so it never asks on auto-refresh
     document.getElementById('voice-gate-overlay').style.display = 'none'; 
     initializeHardwareAudio();
     let warmupSpeech = new SpeechSynthesisUtterance("");
     window.speechSynthesis.speak(warmupSpeech);
 });
+
+// Check if caregiver already authorized the voice today. If true, hide popup instantly.
+if (localStorage.getItem('ios_voice_authorized_token') === 'true') {
+    document.getElementById('voice-gate-overlay').style.display = 'none'; 
+}
 
 const characterTree = [
     { name: "あ行", items: ["あ", "い", "う", "え", "お", "前"] },
@@ -117,7 +126,7 @@ function updateFocusVisuals() {
     let targetElement = document.getElementById(activeId);
     if (targetElement) targetElement.classList.add("active-focus");
 }
-// --- UNTOUCHED UNCHANGED 4.5-SECOND TIME LOOP SCANNER ---
+// --- UNTOUCHED ORIGINAL 4.5-SECOND SCANNER ---
 function startMasterScanLoop() {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
@@ -129,7 +138,7 @@ function startMasterScanLoop() {
             activeColIndex = (activeColIndex + 1) % maxCols;
         }
         updateFocusVisuals();
-    }, 4500); // Main scanning baseline stays perfectly at 4.5 seconds per tile
+    }, 4500); // Speed remains perfectly locked at 4.5 seconds flat per character tile
 }
 
 function executeSelectionAction() {
@@ -175,7 +184,6 @@ function processSelection(value) {
 
 function returnToTier1() { currentTier = 1; activeRowIndex = 0; buildTier1UI(); }
 
-// --- FIXED CRASH-PROOFED SPEECH OUTPUT PIPELINE ---
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -186,7 +194,6 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     utterance.lang = 'ja-JP';
     utterance.rate = 0.85; 
     
-    // Safety check protection layer: Only loop array filters if the device reports voice profiles active
     let systemVoices = window.speechSynthesis.getVoices();
     if (systemVoices && systemVoices.length > 0) {
         let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
