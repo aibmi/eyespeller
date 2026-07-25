@@ -222,11 +222,13 @@ function executeSelectionAction() {
 
     setTimeout(() => {
         if (currentTier === 1) {
-            currentTier = 2;
-            activeColIndex = 0;
-            buildTier2UI(activeRowIndex);
-            pendingExtraPause = true; // CHANGED: give extra dwell time on the first item of the new row
-        } else {
+    currentTier = 2;
+    activeColIndex = 0;
+    buildTier2UI(activeRowIndex);
+    pendingExtraPause = true;
+    if (loopInterval) clearTimeout(loopInterval); // FIXED: cancel the tick already in flight
+    scheduleNextScanTick(); // FIXED: restart the loop now, so the extra pause applies to the first character, not whichever tick happened to be mid-countdown
+} else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
             processSelection(selectedItem);
         }
