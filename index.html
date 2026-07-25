@@ -16,6 +16,7 @@
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
         /* CHANGED: visual box showing which face region is being watched, for the eyebrow/mouth modes */
         #region-box { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; display: none;}
+        .region-box-extra { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; }
 
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
@@ -120,7 +121,10 @@ const TRIGGER_MODE = "mouth";
 // CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
 // Assumes a roughly centered, front-facing camera view (matches this app's 160x120 webcam feed).
 const REGION_DEFS = {
-    eyebrow: { xStart: 0.20, xEnd: 0.45, yStart: 0.20, yEnd: 0.30 },
+    eyebrow: [
+        { xStart: 0.18, xEnd: 0.32, yStart: 0.22, yEnd: 0.32 },
+        { xStart: 0.33, xEnd: 0.47, yStart: 0.22, yEnd: 0.32 }
+    ],
     mouth:   { xStart: 0.30, xEnd: 0.45, yStart: 0.45, yEnd: 0.50 }
 };
 const TRIGGER_THRESHOLDS = {
@@ -315,19 +319,24 @@ function exitSleepState() { isSleeping = false; returnToTier1(); }
 
 // CHANGED: draws the dashed yellow box over the watched region, so you can see exactly what
 // eyebrow/mouth mode is looking at while you test and adjust REGION_DEFS.
+
 function drawRegionOverlay() {
     if (TRIGGER_MODE === "head") { regionBoxDOM.style.display = "none"; return; }
-    const region = REGION_DEFS[TRIGGER_MODE];
-    if (!region) { regionBoxDOM.style.display = "none"; return; }
+    const regionData = REGION_DEFS[TRIGGER_MODE];
+    const regions = Array.isArray(regionData) ? regionData : [regionData];
+    document.querySelectorAll(".region-box-extra").forEach(el => el.remove());
     const containerW = videoContainerDOM.clientWidth;
     const containerH = videoContainerDOM.clientHeight;
-    regionBoxDOM.style.display = "block";
-    regionBoxDOM.style.left = (region.xStart  * containerW) + "px";
-    regionBoxDOM.style.top = (region.yStart * containerH) + "px";
-    regionBoxDOM.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
-    regionBoxDOM.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
+    regions.forEach((region, i) => {
+        let box = i === 0 ? regionBoxDOM : regionBoxDOM.cloneNode();
+        if (i > 0) { box.className = "region-box-extra"; videoContainerDOM.appendChild(box); }
+        box.style.display = "block";
+        box.style.left = (region.xStart * containerW) + "px";
+        box.style.top = (region.yStart * containerH) + "px";
+        box.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
+        box.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
+    });
 }
-
 async function setupWebcam() {
     video = document.getElementById('webcam');
     canvas = document.createElement('canvas');
@@ -417,7 +426,9 @@ function analyzePixelsLoop() {
         if (TRIGGER_MODE === "head") {
             motionRatio = computeHeadMotionRatio(data, w, h);
         } else {
-            motionRatio = computeRegionMotionRatio(data, w, h, REGION_DEFS[TRIGGER_MODE]);
+            const regionData = REGION_DEFS[TRIGGER_MODE];
+            const regionsToCheck = Array.isArray(regionData) ? regionData : [regionData];
+            motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE])));
         }
 
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
