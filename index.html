@@ -123,6 +123,11 @@ const REGION_DEFS = {
     eyebrow: { xStart: 0.20, xEnd: 0.45, yStart: 0.20, yEnd: 0.30 },
     mouth:   { xStart: 0.30, xEnd: 0.45, yStart: 0.45, yEnd: 0.50 }
 };
+const TRIGGER_THRESHOLDS = {
+    head:    { unlock: 0.1, trigger: 0.5, reset: 0.2 },
+    eyebrow: { unlock: 0.1, trigger: 0.3, reset: 0.15 },
+    mouth:   { unlock: 0.1, trigger: 0.8, reset: 0.3 }
+};
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
@@ -415,17 +420,17 @@ function analyzePixelsLoop() {
             motionRatio = computeRegionMotionRatio(data, w, h, REGION_DEFS[TRIGGER_MODE]);
         }
 
-        if (motionRatio > 0.1 && !cameraUnlocked) {
+        if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
             initializeHardwareAudio(); 
         }
-        if (motionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
+        if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger && cameraUnlocked && !cooldownActive) {
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (motionRatio < 0.2) { motionTriggered = false; }
+        } else if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
