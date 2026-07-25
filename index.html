@@ -7,7 +7,6 @@
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
         #preview-box { width: 100%; padding: 20px; font-size: 36px; font-weight: bold; background: #1c1c1e; color: #ffffff; text-align: left; border-radius: 12px; min-height: 80px; box-sizing: border-box; border: 2px solid #2c2c2e; margin-bottom: 15px; word-wrap: break-word; }
-        /* CHANGED: visible gap for spaces in preview text */
         .space-gap { display: inline-block; width: 32px; }
         #matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-grow: 1; }
         .grid-button { background: #1c1c1e; color: #ffffff; border: 3px solid #2c2c2e; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: bold; transition: all 0.05s; }
@@ -15,15 +14,15 @@
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        
-        /* Persistent iOS Security Overlay Prompt Layout */
+        /* CHANGED: visual box showing which face region is being watched, for the eyebrow/mouth modes */
+        #region-box { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; display: none; }
+
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
     </style>
 </head>
 <body>
 
-    <!-- Security Overlay Gate Target Layout -->
     <div id="voice-gate-overlay">
         <button id="voice-gate-btn">音声許可のためにここをタッチしてください<br><span style="font-size:20px; font-weight:normal; display:block; margin-top:10px;">Touch here to allow voice</span></button>
     </div>
@@ -33,6 +32,7 @@
     
     <div id="video-container">
         <video id="webcam" autoplay playsinline muted crossorigin="anonymous"></video>
+        <div id="region-box"></div>
     </div>
 <script>
 let trackingReady = false; 
@@ -56,7 +56,7 @@ function processActiveUnfreezableRefresh() {
     const NOW = Date.now();
     if (NOW - startTime >= TWENTY_FOUR_HOURS) {
         localStorage.removeItem('bluefy_refresh_start');
-        localStorage.removeItem('ios_voice_authorized_token'); // Cleanup token at expiration
+        localStorage.removeItem('ios_voice_authorized_token');
         return; 
     }
     if (NOW - lastRefreshCheckTime >= FIVE_MINUTES) {
@@ -64,21 +64,16 @@ function processActiveUnfreezableRefresh() {
     }
 }
 
-// --- HARDWARE INTERACTION UNLOCK OVERRIDE ENGINE ---
 document.getElementById('voice-gate-btn').addEventListener('click', () => {
-    localStorage.setItem('ios_voice_authorized_token', 'true'); // Save persistent security authorization token
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Dismiss prompt layout screen
-    
+    localStorage.setItem('ios_voice_authorized_token', 'true');
+    document.getElementById('voice-gate-overlay').style.display = 'none';
     initializeHardwareAudio();
-    
-    // Fire an immediate native hardware voice sample packet pass to open system muting constraints
     let warmupSpeech = new SpeechSynthesisUtterance("");
     window.speechSynthesis.speak(warmupSpeech);
 });
 
-// Check persistent token memory on launch loop context
 if (localStorage.getItem('ios_voice_authorized_token') === 'true') {
-    document.getElementById('voice-gate-overlay').style.display = 'none'; // Bypass prompt if already tapped today
+    document.getElementById('voice-gate-overlay').style.display = 'none';
 }
 
 const characterTree = [
@@ -106,17 +101,33 @@ let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
 
-// CHANGED: cursor speed 4500ms -> 2000ms (requested "three to two seconds"; actual prior value was 4.5s)
 const SCAN_INTERVAL_MS = 2000;
-// CHANGED: extra dwell time on the FIRST item of a row right after entering it (tier 1 -> tier 2)
 const FIRST_CELL_EXTRA_PAUSE_MS = 3000;
 let pendingExtraPause = false;
-// CHANGED: brief pause length spoken between words split by a space
 const WORD_PAUSE_MS = 400;
+
+// ==========================================================================
+// CHANGED: TRIGGER MODE SWITCH
+// Change this one value to test a different detection signal.
+// Options: "head"  -> whole-frame lateral motion (original, glasses-safe, works late-stage)
+//          "eyebrow" -> narrow band above the eyes (works well early/mid-stage, can be
+//                        affected by glasses glare/frame edges)
+//          "mouth"   -> narrow band around the mouth (glasses-proof, tends to stay usable
+//                        longest for limb-onset ALS, may fail sooner for bulbar-onset)
+// ==========================================================================
+const TRIGGER_MODE = "head";
+
+// CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
+// Assumes a roughly centered, front-facing camera view (matches this app's 160x120 webcam feed).
+const REGION_DEFS = {
+    eyebrow: { xStart: 0.30, xEnd: 0.70, yStart: 0.12, yEnd: 0.28 },
+    mouth:   { xStart: 0.35, xEnd: 0.65, yStart: 0.65, yEnd: 0.85 }
+};
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
 const videoContainerDOM = document.getElementById("video-container");
+const regionBoxDOM = document.getElementById("region-box"); // CHANGED
 
 function initializeHardwareAudio() {
     if (!globalAudioCtx) {
@@ -174,15 +185,12 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
-// CHANGED: renders constructedString into the preview box, showing spaces as a wider visible gap
 function renderPreview() {
     let display = constructedString === "" ? "＿" : constructedString + "＿";
     let html = display.split(" ").join('<span class="space-gap"></span>');
     previewDOM.innerHTML = html;
 }
 
-// CHANGED: scan loop rewritten from a fixed setInterval to a re-schedulable setTimeout loop,
-// so a one-time extra pause can be inserted on the first cell of a freshly-opened row.
 function scheduleNextScanTick() {
     let delay = SCAN_INTERVAL_MS;
     if (pendingExtraPause) {
@@ -204,8 +212,8 @@ function scheduleNextScanTick() {
 }
 
 function startMasterScanLoop() {
-    if (loopInterval) clearTimeout(loopInterval); // CHANGED: clearTimeout instead of clearInterval
-    scheduleNextScanTick(); // CHANGED: kicks off the re-schedulable loop
+    if (loopInterval) clearTimeout(loopInterval);
+    scheduleNextScanTick();
 }
 
 function executeSelectionAction() {
@@ -222,13 +230,13 @@ function executeSelectionAction() {
 
     setTimeout(() => {
         if (currentTier === 1) {
-    currentTier = 2;
-    activeColIndex = 0;
-    buildTier2UI(activeRowIndex);
-    pendingExtraPause = true;
-    if (loopInterval) clearTimeout(loopInterval); // FIXED: cancel the tick already in flight
-    scheduleNextScanTick(); // FIXED: restart the loop now, so the extra pause applies to the first character, not whichever tick happened to be mid-countdown
-} else {
+            currentTier = 2;
+            activeColIndex = 0;
+            buildTier2UI(activeRowIndex);
+            pendingExtraPause = true;
+            if (loopInterval) clearTimeout(loopInterval); // FIXED: cancel in-flight tick so the extra pause lands on the first character
+            scheduleNextScanTick();
+        } else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
             processSelection(selectedItem);
         }
@@ -250,21 +258,18 @@ function processSelection(value) {
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
-                renderPreview(); // CHANGED: use renderPreview() so space-gap styling stays consistent
+                renderPreview();
                 broadcastTrueIphoneSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
         }
     } else { constructedString += value; }
-    renderPreview(); // CHANGED: replaces the old direct previewDOM.innerText assignment
+    renderPreview();
     returnToTier1();
 }
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
-// --- TRUE LOCAL IPHONE MALE SPEECH UTTERANCE ROUTER ENGINE ---
-// CHANGED: now splits on spaces and speaks word-by-word with a short pause in between,
-// so a space is heard as a brief pause between words instead of being silently skipped.
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
@@ -276,29 +281,23 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
 
     function speakNextWord() {
         if (wordIndex >= words.length) { isBroadcasting = false; return; }
-
         let utterance = new SpeechSynthesisUtterance(words[wordIndex]);
         utterance.lang = 'ja-JP';
-        utterance.rate = 0.85; // Natural spoken cadence speed
-
-        // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
+        utterance.rate = 0.85;
         let systemVoices = window.speechSynthesis.getVoices();
         let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
         if (maleVoice) utterance.voice = maleVoice;
-
         utterance.onend = function() {
             wordIndex++;
             if (wordIndex < words.length) {
-                setTimeout(speakNextWord, WORD_PAUSE_MS); // CHANGED: the "pause" heard between words
+                setTimeout(speakNextWord, WORD_PAUSE_MS);
             } else {
                 isBroadcasting = false;
             }
         };
         utterance.onerror = function() { isBroadcasting = false; };
-
         window.speechSynthesis.speak(utterance);
     }
-
     speakNextWord();
 }
 
@@ -308,6 +307,21 @@ function enterSleepState() {
 }
 
 function exitSleepState() { isSleeping = false; returnToTier1(); }
+
+// CHANGED: draws the dashed yellow box over the watched region, so you can see exactly what
+// eyebrow/mouth mode is looking at while you test and adjust REGION_DEFS.
+function drawRegionOverlay() {
+    if (TRIGGER_MODE === "head") { regionBoxDOM.style.display = "none"; return; }
+    const region = REGION_DEFS[TRIGGER_MODE];
+    if (!region) { regionBoxDOM.style.display = "none"; return; }
+    const containerW = videoContainerDOM.clientWidth;
+    const containerH = videoContainerDOM.clientHeight;
+    regionBoxDOM.style.display = "block";
+    regionBoxDOM.style.left = (region.xStart * containerW) + "px";
+    regionBoxDOM.style.top = (region.yStart * containerH) + "px";
+    regionBoxDOM.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
+    regionBoxDOM.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
+}
 
 async function setupWebcam() {
     video = document.getElementById('webcam');
@@ -324,9 +338,55 @@ async function setupWebcam() {
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
             setTimeout(() => { trackingReady = true; }, 6000);
+            drawRegionOverlay(); // CHANGED
             requestAnimationFrame(analyzePixelsLoop);
         });
     } catch (err) {}
+}
+
+// CHANGED: whole-frame lateral-shift detection — this is the original "head" logic,
+// pulled out into its own function so it can sit alongside the new region-based one.
+function computeHeadMotionRatio(data, w, h) {
+    let lateralShiftPixels = 0;
+    let totalChecked = 0;
+    for (let y = 4; y < h - 4; y += 4) {
+        for (let x = 8; x < w - 8; x += 4) {
+            let idx = (y * w + x) * 4;
+            let currentCenter = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+            let prevLeftNeighbor = (prevFrameData[idx - 8] + prevFrameData[idx - 7] + prevFrameData[idx - 6]) / 3;
+            let prevRightNeighbor = (prevFrameData[idx + 8] + prevFrameData[idx + 9] + prevFrameData[idx + 10]) / 3;
+            if ((Math.abs(currentCenter - prevLeftNeighbor) < 6 || Math.abs(currentCenter - prevRightNeighbor) < 6) && Math.abs(data[idx] - prevFrameData[idx]) > 8) {
+                lateralShiftPixels++;
+            }
+            totalChecked++;
+        }
+    }
+    return totalChecked > 0 ? (lateralShiftPixels / totalChecked) * 100 : 0;
+}
+
+// CHANGED: region-based brightness-change detection — used for both eyebrow and mouth modes.
+// Unlike head mode, this only looks inside a small rectangle (REGION_DEFS) and just checks
+// for straightforward brightness change there, since an eyebrow/mouth movement causes a
+// localized shadow/skin change rather than the lateral edge shift a turning head produces.
+function computeRegionMotionRatio(data, w, h, region) {
+    const xStart = Math.floor(region.xStart * w);
+    const xEnd = Math.floor(region.xEnd * w);
+    const yStart = Math.floor(region.yStart * h);
+    const yEnd = Math.floor(region.yEnd * h);
+    let changedPixels = 0;
+    let totalChecked = 0;
+    for (let y = yStart; y < yEnd; y += 2) {
+        for (let x = xStart; x < xEnd; x += 2) {
+            let idx = (y * w + x) * 4;
+            let currentBrightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+            let prevBrightness = (prevFrameData[idx] + prevFrameData[idx+1] + prevFrameData[idx+2]) / 3;
+            if (Math.abs(currentBrightness - prevBrightness) > 10) {
+                changedPixels++;
+            }
+            totalChecked++;
+        }
+    }
+    return totalChecked > 0 ? (changedPixels / totalChecked) * 100 : 0;
 }
 
 function analyzePixelsLoop() {
@@ -343,34 +403,28 @@ function analyzePixelsLoop() {
             requestAnimationFrame(analyzePixelsLoop);
             return;
         }
-        let lateralShiftPixels = 0;
-        let totalChecked = 0;
         let w = canvas.width;
         let h = canvas.height;
-        for (let y = 4; y < h - 4; y += 4) {
-            for (let x = 8; x < w - 8; x += 4) {
-                let idx = (y * w + x) * 4;
-                let currentCenter = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-                let prevLeftNeighbor = (prevFrameData[idx - 8] + prevFrameData[idx - 7] + prevFrameData[idx - 6]) / 3;
-                let prevRightNeighbor = (prevFrameData[idx + 8] + prevFrameData[idx + 9] + prevFrameData[idx + 10]) / 3;
-                if ((Math.abs(currentCenter - prevLeftNeighbor) < 6 || Math.abs(currentCenter - prevRightNeighbor) < 6) && Math.abs(data[idx] - prevFrameData[idx]) > 8) {
-                    lateralShiftPixels++;
-                }
-                totalChecked++;
-            }
+
+        // CHANGED: pick which detector to run based on TRIGGER_MODE
+        let motionRatio;
+        if (TRIGGER_MODE === "head") {
+            motionRatio = computeHeadMotionRatio(data, w, h);
+        } else {
+            motionRatio = computeRegionMotionRatio(data, w, h, REGION_DEFS[TRIGGER_MODE]);
         }
-        let lateralMotionRatio = (lateralShiftPixels / totalChecked) * 100;
-        if (lateralMotionRatio > 0.1 && !cameraUnlocked) {
+
+        if (motionRatio > 0.1 && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
             initializeHardwareAudio(); 
         }
-        if (lateralMotionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
+        if (motionRatio > 0.5 && cameraUnlocked && !cooldownActive) { 
             if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (lateralMotionRatio < 0.2) { motionTriggered = false; }
+        } else if (motionRatio < 0.2) { motionTriggered = false; }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
