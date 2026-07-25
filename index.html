@@ -15,7 +15,7 @@
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
         /* CHANGED: visual box showing which face region is being watched, for the eyebrow/mouth modes */
-        #region-box { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; display: none;  transform: scaleX(-1);}
+        #region-box { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; display: none;}
 
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
@@ -317,7 +317,7 @@ function drawRegionOverlay() {
     const containerW = videoContainerDOM.clientWidth;
     const containerH = videoContainerDOM.clientHeight;
     regionBoxDOM.style.display = "block";
-    regionBoxDOM.style.left = (region.xStart * containerW) + "px";
+    regionBoxDOM.style.left = ((1 - region.xEnd)  * containerW) + "px";
     regionBoxDOM.style.top = (region.yStart * containerH) + "px";
     regionBoxDOM.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
     regionBoxDOM.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
