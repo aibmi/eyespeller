@@ -317,7 +317,7 @@ function drawRegionOverlay() {
     const containerW = videoContainerDOM.clientWidth;
     const containerH = videoContainerDOM.clientHeight;
     regionBoxDOM.style.display = "block";
-    regionBoxDOM.style.left = (region.xEnd  * containerW) + "px";
+    regionBoxDOM.style.left = (region.xStart  * containerW) + "px";
     regionBoxDOM.style.top = (region.yStart * containerH) + "px";
     regionBoxDOM.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
     regionBoxDOM.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
