@@ -440,7 +440,7 @@ function analyzePixelsLoop() {
             const regionData = REGION_DEFS[TRIGGER_MODE];
             const regionsToCheck = Array.isArray(regionData) ? regionData : [regionData];
             motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE], PIXEL_COLOR_THRESHOLDS[TRIGGER_MODE])));
-
+        }
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
