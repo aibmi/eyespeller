@@ -117,7 +117,8 @@ const WORD_PAUSE_MS = 400;
 //                        longest for limb-onset ALS, may fail sooner for bulbar-onset)
 // ==========================================================================
 const TRIGGER_MODE = "mouth";
-
+const DETECTION_METHOD = { eyebrow: "color", mouth: "color" };
+    
 // CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
 // Assumes a roughly centered, front-facing camera view (matches this app's 160x120 webcam feed).
 const REGION_DEFS = {
@@ -382,7 +383,7 @@ function computeHeadMotionRatio(data, w, h) {
 // Unlike head mode, this only looks inside a small rectangle (REGION_DEFS) and just checks
 // for straightforward brightness change there, since an eyebrow/mouth movement causes a
 // localized shadow/skin change rather than the lateral edge shift a turning head produces.
-function computeRegionMotionRatio(data, w, h, region) {
+function computeRegionMotionRatio(data, w, h, region, method) {
     const xStart = Math.floor((1 - region.xEnd) * w);
     const xEnd = Math.floor((1 - region.xStart) * w);
     
@@ -393,9 +394,19 @@ function computeRegionMotionRatio(data, w, h, region) {
     for (let y = yStart; y < yEnd; y += 2) {
         for (let x = xStart; x < xEnd; x += 2) {
             let idx = (y * w + x) * 4;
-            let currentBrightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-            let prevBrightness = (prevFrameData[idx] + prevFrameData[idx+1] + prevFrameData[idx+2]) / 3;
-            if (Math.abs(currentBrightness - prevBrightness) > 10) {
+            let changed = false;
+            if (method === "color") {
+                let dr = data[idx] - prevFrameData[idx];
+                let dg = data[idx+1] - prevFrameData[idx+1];
+                let db = data[idx+2] - prevFrameData[idx+2];
+                let colorDistance = Math.sqrt(dr*dr + dg*dg + db*db);
+                if (colorDistance > 18) changed = true;
+            } else {
+                let currentBrightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                let prevBrightness = (prevFrameData[idx] + prevFrameData[idx+1] + prevFrameData[idx+2]) / 3;
+                if (Math.abs(currentBrightness - prevBrightness) > 10) changed = true;
+            }
+            if (changed) {
                 changedPixels++;
             }
             totalChecked++;
@@ -403,7 +414,6 @@ function computeRegionMotionRatio(data, w, h, region) {
     }
     return totalChecked > 0 ? (changedPixels / totalChecked) * 100 : 0;
 }
-
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     
