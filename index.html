@@ -7,6 +7,8 @@
     <style>
         body { font-family: -apple-system, sans-serif; background: #000000; color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; overflow: hidden; }
         #preview-box { width: 100%; padding: 20px; font-size: 36px; font-weight: bold; background: #1c1c1e; color: #ffffff; text-align: left; border-radius: 12px; min-height: 80px; box-sizing: border-box; border: 2px solid #2c2c2e; margin-bottom: 15px; word-wrap: break-word; }
+        /* CHANGED: visible gap for spaces in preview text */
+        .space-gap { display: inline-block; width: 32px; }
         #matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex-grow: 1; }
         .grid-button { background: #1c1c1e; color: #ffffff; border: 3px solid #2c2c2e; border-radius: 16px; display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: bold; transition: all 0.05s; }
         .active-focus { border-color: #30d158 !important; background: #1c3d22 !important; box-shadow: 0 0 15px #30d158; }
@@ -104,6 +106,14 @@ let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
 
+// CHANGED: cursor speed 4500ms -> 2000ms (requested "three to two seconds"; actual prior value was 4.5s)
+const SCAN_INTERVAL_MS = 2000;
+// CHANGED: extra dwell time on the FIRST item of a row right after entering it (tier 1 -> tier 2)
+const FIRST_CELL_EXTRA_PAUSE_MS = 1000;
+let pendingExtraPause = false;
+// CHANGED: brief pause length spoken between words split by a space
+const WORD_PAUSE_MS = 400;
+
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
 const videoContainerDOM = document.getElementById("video-container");
@@ -164,18 +174,38 @@ function updateFocusVisuals() {
     if (targetElement) targetElement.classList.add("active-focus");
 }
 
-function startMasterScanLoop() {
-    if (loopInterval) clearInterval(loopInterval);
-    loopInterval = setInterval(() => {
-        if (isBroadcasting || isSleeping || !trackingReady) return;
-        if (currentTier === 1) {
-            activeRowIndex = (activeRowIndex + 1) % characterTree.length;
-        } else {
-            const maxCols = characterTree[activeRowIndex].items.length;
-            activeColIndex = (activeColIndex + 1) % maxCols;
+// CHANGED: renders constructedString into the preview box, showing spaces as a wider visible gap
+function renderPreview() {
+    let display = constructedString === "" ? "＿" : constructedString + "＿";
+    let html = display.split(" ").join('<span class="space-gap"></span>');
+    previewDOM.innerHTML = html;
+}
+
+// CHANGED: scan loop rewritten from a fixed setInterval to a re-schedulable setTimeout loop,
+// so a one-time extra pause can be inserted on the first cell of a freshly-opened row.
+function scheduleNextScanTick() {
+    let delay = SCAN_INTERVAL_MS;
+    if (pendingExtraPause) {
+        delay += FIRST_CELL_EXTRA_PAUSE_MS;
+        pendingExtraPause = false;
+    }
+    loopInterval = setTimeout(() => {
+        if (!(isBroadcasting || isSleeping || !trackingReady)) {
+            if (currentTier === 1) {
+                activeRowIndex = (activeRowIndex + 1) % characterTree.length;
+            } else {
+                const maxCols = characterTree[activeRowIndex].items.length;
+                activeColIndex = (activeColIndex + 1) % maxCols;
+            }
+            updateFocusVisuals();
         }
-        updateFocusVisuals();
-    }, 4500); 
+        scheduleNextScanTick();
+    }, delay);
+}
+
+function startMasterScanLoop() {
+    if (loopInterval) clearTimeout(loopInterval); // CHANGED: clearTimeout instead of clearInterval
+    scheduleNextScanTick(); // CHANGED: kicks off the re-schedulable loop
 }
 
 function executeSelectionAction() {
@@ -195,6 +225,7 @@ function executeSelectionAction() {
             currentTier = 2;
             activeColIndex = 0;
             buildTier2UI(activeRowIndex);
+            pendingExtraPause = true; // CHANGED: give extra dwell time on the first item of the new row
         } else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
             processSelection(selectedItem);
@@ -217,38 +248,56 @@ function processSelection(value) {
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
             case "おねがい": 
                 constructedString += "お願いします";
-                previewDOM.innerText = constructedString + "＿";
+                renderPreview(); // CHANGED: use renderPreview() so space-gap styling stays consistent
                 broadcastTrueIphoneSpeech("お願いします"); 
                 break;
             case "休止モード": enterSleepState(); return;
         }
     } else { constructedString += value; }
-    previewDOM.innerText = constructedString == "" ? "＿" : constructedString + "＿";
+    renderPreview(); // CHANGED: replaces the old direct previewDOM.innerText assignment
     returnToTier1();
 }
 
 function returnToTier1() { currentTier = 1; buildTier1UI(); }
 
 // --- TRUE LOCAL IPHONE MALE SPEECH UTTERANCE ROUTER ENGINE ---
+// CHANGED: now splits on spaces and speaks word-by-word with a short pause in between,
+// so a space is heard as a brief pause between words instead of being silently skipped.
 function broadcastTrueIphoneSpeech(textToSpeak) {
     if (!textToSpeak || textToSpeak.trim() === "") return;
     isBroadcasting = true;
     initializeHardwareAudio();
-    
-    window.speechSynthesis.cancel(); 
-    let utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.lang = 'ja-JP';
-    utterance.rate = 0.85; // Natural spoken cadence speed
-    
-    // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
-    let systemVoices = window.speechSynthesis.getVoices();
-    let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
-    if (maleVoice) utterance.voice = maleVoice;
-    
-    utterance.onend = function() { isBroadcasting = false; };
-    utterance.onerror = function() { isBroadcasting = false; };
-    
-    window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.cancel();
+
+    const words = textToSpeak.split(" ").filter(w => w.length > 0);
+    let wordIndex = 0;
+
+    function speakNextWord() {
+        if (wordIndex >= words.length) { isBroadcasting = false; return; }
+
+        let utterance = new SpeechSynthesisUtterance(words[wordIndex]);
+        utterance.lang = 'ja-JP';
+        utterance.rate = 0.85; // Natural spoken cadence speed
+
+        // Bind Apple's premium built-in Japanese Male voice profiles natively (Otoya or Hattori chips)
+        let systemVoices = window.speechSynthesis.getVoices();
+        let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
+        if (maleVoice) utterance.voice = maleVoice;
+
+        utterance.onend = function() {
+            wordIndex++;
+            if (wordIndex < words.length) {
+                setTimeout(speakNextWord, WORD_PAUSE_MS); // CHANGED: the "pause" heard between words
+            } else {
+                isBroadcasting = false;
+            }
+        };
+        utterance.onerror = function() { isBroadcasting = false; };
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    speakNextWord();
 }
 
 function enterSleepState() {
