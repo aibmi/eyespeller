@@ -117,6 +117,7 @@ const WORD_PAUSE_MS = 400;
 //                        longest for limb-onset ALS, may fail sooner for bulbar-onset)
 // ==========================================================================
 const TRIGGER_MODE = "eyebrow";
+const PIXEL_COLOR_THRESHOLDS = { eyebrow: 9, mouth: 18 };
 const DETECTION_METHOD = { eyebrow: "color", mouth: "color" };
     
 // CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
@@ -383,7 +384,7 @@ function computeHeadMotionRatio(data, w, h) {
 // Unlike head mode, this only looks inside a small rectangle (REGION_DEFS) and just checks
 // for straightforward brightness change there, since an eyebrow/mouth movement causes a
 // localized shadow/skin change rather than the lateral edge shift a turning head produces.
-function computeRegionMotionRatio(data, w, h, region, method) {
+function computeRegionMotionRatio(data, w, h, region, method,  pixelThreshold ) {
     const xStart = Math.floor((1 - region.xEnd) * w);
     const xEnd = Math.floor((1 - region.xStart) * w);
     
@@ -400,7 +401,7 @@ function computeRegionMotionRatio(data, w, h, region, method) {
                 let dg = data[idx+1] - prevFrameData[idx+1];
                 let db = data[idx+2] - prevFrameData[idx+2];
                 let colorDistance = Math.sqrt(dr*dr + dg*dg + db*db);
-                if (colorDistance > 18) changed = true;
+                if (colorDistance > pixelThreshold) changed = true;
             } else {
                 let currentBrightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
                 let prevBrightness = (prevFrameData[idx] + prevFrameData[idx+1] + prevFrameData[idx+2]) / 3;
@@ -438,8 +439,7 @@ function analyzePixelsLoop() {
         } else {
             const regionData = REGION_DEFS[TRIGGER_MODE];
             const regionsToCheck = Array.isArray(regionData) ? regionData : [regionData];
-            motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE])));
-        }
+            motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE], PIXEL_COLOR_THRESHOLDS[TRIGGER_MODE])));
 
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
             cameraUnlocked = true;
