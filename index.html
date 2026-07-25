@@ -120,7 +120,7 @@ const TRIGGER_MODE = "eyebrow";
 // CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
 // Assumes a roughly centered, front-facing camera view (matches this app's 160x120 webcam feed).
 const REGION_DEFS = {
-    eyebrow: { xStart: 0.52, xEnd: 0.88, yStart: 0.22, yEnd: 0.32 },
+    eyebrow: { xStart: 0.20, xEnd: 0.45, yStart: 0.22, yEnd: 0.32 },
     mouth:   { xStart: 0.35, xEnd: 0.65, yStart: 0.65, yEnd: 0.85 }
 };
 
@@ -317,7 +317,7 @@ function drawRegionOverlay() {
     const containerW = videoContainerDOM.clientWidth;
     const containerH = videoContainerDOM.clientHeight;
     regionBoxDOM.style.display = "block";
-    regionBoxDOM.style.left = ((1 - region.xEnd)  * containerW) + "px";
+    regionBoxDOM.style.left = (region.xEnd  * containerW) + "px";
     regionBoxDOM.style.top = (region.yStart * containerH) + "px";
     regionBoxDOM.style.width = ((region.xEnd - region.xStart) * containerW) + "px";
     regionBoxDOM.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
@@ -369,8 +369,9 @@ function computeHeadMotionRatio(data, w, h) {
 // for straightforward brightness change there, since an eyebrow/mouth movement causes a
 // localized shadow/skin change rather than the lateral edge shift a turning head produces.
 function computeRegionMotionRatio(data, w, h, region) {
-    const xStart = Math.floor(region.xStart * w);
-    const xEnd = Math.floor(region.xEnd * w);
+    const xStart = Math.floor((1 - region.xEnd) * w);
+    const xEnd = Math.floor((1 - region.xStart) * w);
+    
     const yStart = Math.floor(region.yStart * h);
     const yEnd = Math.floor(region.yEnd * h);
     let changedPixels = 0;
