@@ -280,15 +280,34 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     const words = textToSpeak.split(" ").filter(w => w.length > 0);
     let wordIndex = 0;
 
+  
     function speakNextWord() {
         if (wordIndex >= words.length) { isBroadcasting = false; return; }
+
         let utterance = new SpeechSynthesisUtterance(words[wordIndex]);
         utterance.lang = 'ja-JP';
         utterance.rate = 0.85;
+
         let systemVoices = window.speechSynthesis.getVoices();
         let maleVoice = systemVoices.find(v => v.lang.includes('ja') && (v.name.includes('Otoya') || v.name.includes('Hattori') || v.name.includes('Male')));
         if (maleVoice) utterance.voice = maleVoice;
+
+        let callbackFired = false;
+
+        // ADDED: safety timer — if iOS never fires onend/onerror (silent speech failure),
+        // this forces isBroadcasting back to false after 4 seconds so the whole interface
+        // doesn't stay frozen forever.
+        let watchdog = setTimeout(() => {
+            if (!callbackFired) {
+                callbackFired = true;
+                isBroadcasting = false;
+            }
+        }, 4000);
+
         utterance.onend = function() {
+            if (callbackFired) return;
+            callbackFired = true;
+            clearTimeout(watchdog);
             wordIndex++;
             if (wordIndex < words.length) {
                 setTimeout(speakNextWord, WORD_PAUSE_MS);
@@ -296,7 +315,13 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
                 isBroadcasting = false;
             }
         };
-        utterance.onerror = function() { isBroadcasting = false; };
+        utterance.onerror = function() {
+            if (callbackFired) return;
+            callbackFired = true;
+            clearTimeout(watchdog);
+            isBroadcasting = false;
+        };
+
         window.speechSynthesis.speak(utterance);
     }
     speakNextWord();
