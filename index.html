@@ -14,10 +14,8 @@
         .trigger-flash { background: #30d158 !important; color: #000000 !important; }
         #video-container { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 75px; border-radius: 8px; overflow: hidden; border: 3px solid #ff3b30; opacity: 0.8; z-index: 9999; background: #222; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        /* CHANGED: visual box showing which face region is being watched, for the eyebrow/mouth modes */
         #region-box { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; display: none;}
         .region-box-extra { position: absolute; border: 2px dashed #ffd60a; pointer-events: none; }
-
         #voice-gate-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 100000; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box; padding: 30px; }
         #voice-gate-btn { background: #30d158; color: #000000; font-size: 32px; font-weight: bold; padding: 25px 40px; border-radius: 20px; border: none; width: 100%; max-width: 600px; box-shadow: 0 0 25px #30d158; text-align: center; }
     </style>
@@ -42,7 +40,6 @@ let cameraUnlocked = false;
 let cooldownActive = false; 
 let globalAudioCtx = null; 
 
-// --- UNFREEZABLE RENDER-LOOP REFRESH TIMERS ---
 const FIVE_MINUTES = 5 * 60 * 1000;
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 let lastRefreshCheckTime = Date.now();
@@ -108,20 +105,13 @@ const FIRST_CELL_EXTRA_PAUSE_MS = 3000;
 let pendingExtraPause = false;
 const WORD_PAUSE_MS = 400;
 
-// ==========================================================================
-// CHANGED: TRIGGER MODE SWITCH
-// Change this one value to test a different detection signal.
-// Options: "head"  -> whole-frame lateral motion (original, glasses-safe, works late-stage)
-//          "eyebrow" -> narrow band above the eyes (works well early/mid-stage, can be
-//                        affected by glasses glare/frame edges)
-//          "mouth"   -> narrow band around the mouth (glasses-proof, tends to stay usable
-//                        longest for limb-onset ALS, may fail sooner for bulbar-onset)
-// ==========================================================================
 const TRIGGER_MODE = "eyebrow";
 const DETECTION_METHOD = { eyebrow: "color", mouth: "color" };
-    
-// CHANGED: region definitions as fractions of the canvas, used only by eyebrow/mouth modes.
-// Assumes a roughly centered, front-facing camera view (matches this app's 160x120 webcam feed).
+
+// ADDED: per-mode per-pixel color-distance sensitivity. Lower = counts smaller movements as "changed".
+// Eyebrow motion is subtler than mouth motion, so it needs a lower number here.
+const PIXEL_COLOR_THRESHOLDS = { eyebrow: 9, mouth: 18 };
+
 const REGION_DEFS = {
     eyebrow: [
         { xStart: 0.40, xEnd: 0.50, yStart: 0.35, yEnd: 0.45 },
@@ -138,7 +128,7 @@ const TRIGGER_THRESHOLDS = {
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
 const videoContainerDOM = document.getElementById("video-container");
-const regionBoxDOM = document.getElementById("region-box"); // CHANGED
+const regionBoxDOM = document.getElementById("region-box");
 
 function initializeHardwareAudio() {
     if (!globalAudioCtx) {
@@ -245,7 +235,7 @@ function executeSelectionAction() {
             activeColIndex = 0;
             buildTier2UI(activeRowIndex);
             pendingExtraPause = true;
-            if (loopInterval) clearTimeout(loopInterval); // FIXED: cancel in-flight tick so the extra pause lands on the first character
+            if (loopInterval) clearTimeout(loopInterval);
             scheduleNextScanTick();
         } else {
             const selectedItem = characterTree[activeRowIndex].items[activeColIndex];
@@ -319,9 +309,6 @@ function enterSleepState() {
 
 function exitSleepState() { isSleeping = false; returnToTier1(); }
 
-// CHANGED: draws the dashed yellow box over the watched region, so you can see exactly what
-// eyebrow/mouth mode is looking at while you test and adjust REGION_DEFS.
-
 function drawRegionOverlay() {
     if (TRIGGER_MODE === "head") { regionBoxDOM.style.display = "none"; return; }
     const regionData = REGION_DEFS[TRIGGER_MODE];
@@ -339,6 +326,7 @@ function drawRegionOverlay() {
         box.style.height = ((region.yEnd - region.yStart) * containerH) + "px";
     });
 }
+
 async function setupWebcam() {
     video = document.getElementById('webcam');
     canvas = document.createElement('canvas');
@@ -354,14 +342,12 @@ async function setupWebcam() {
             video.muted = true;
             video.play().catch(() => { video.muted = false; video.play(); });
             setTimeout(() => { trackingReady = true; }, 6000);
-            drawRegionOverlay(); // CHANGED
+            drawRegionOverlay();
             requestAnimationFrame(analyzePixelsLoop);
         });
     } catch (err) {}
 }
 
-// CHANGED: whole-frame lateral-shift detection — this is the original "head" logic,
-// pulled out into its own function so it can sit alongside the new region-based one.
 function computeHeadMotionRatio(data, w, h) {
     let lateralShiftPixels = 0;
     let totalChecked = 0;
@@ -380,11 +366,7 @@ function computeHeadMotionRatio(data, w, h) {
     return totalChecked > 0 ? (lateralShiftPixels / totalChecked) * 100 : 0;
 }
 
-// CHANGED: region-based brightness-change detection — used for both eyebrow and mouth modes.
-// Unlike head mode, this only looks inside a small rectangle (REGION_DEFS) and just checks
-// for straightforward brightness change there, since an eyebrow/mouth movement causes a
-// localized shadow/skin change rather than the lateral edge shift a turning head produces.
-function computeRegionMotionRatio(data, w, h, region, method) {
+function computeRegionMotionRatio(data, w, h, region, method, pixelThreshold) {
     const xStart = Math.floor((1 - region.xEnd) * w);
     const xEnd = Math.floor((1 - region.xStart) * w);
     
@@ -401,7 +383,7 @@ function computeRegionMotionRatio(data, w, h, region, method) {
                 let dg = data[idx+1] - prevFrameData[idx+1];
                 let db = data[idx+2] - prevFrameData[idx+2];
                 let colorDistance = Math.sqrt(dr*dr + dg*dg + db*db);
-                if (colorDistance > 18) changed = true;
+                if (colorDistance > pixelThreshold) changed = true;
             } else {
                 let currentBrightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
                 let prevBrightness = (prevFrameData[idx] + prevFrameData[idx+1] + prevFrameData[idx+2]) / 3;
@@ -415,6 +397,7 @@ function computeRegionMotionRatio(data, w, h, region, method) {
     }
     return totalChecked > 0 ? (changedPixels / totalChecked) * 100 : 0;
 }
+
 function analyzePixelsLoop() {
     if (!video || video.paused || video.ended) { requestAnimationFrame(analyzePixelsLoop); return; }
     
@@ -432,16 +415,17 @@ function analyzePixelsLoop() {
         let w = canvas.width;
         let h = canvas.height;
 
-        // CHANGED: pick which detector to run based on TRIGGER_MODE
         let motionRatio;
         if (TRIGGER_MODE === "head") {
             motionRatio = computeHeadMotionRatio(data, w, h);
         } else {
             const regionData = REGION_DEFS[TRIGGER_MODE];
             const regionsToCheck = Array.isArray(regionData) ? regionData : [regionData];
-            motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE])));
+            motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE], PIXEL_COLOR_THRESHOLDS[TRIGGER_MODE])));
         }
+
         document.getElementById('debug-readout').innerText = 'ratio: ' + motionRatio.toFixed(2) + ' / trigger: ' + TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger;
+
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
