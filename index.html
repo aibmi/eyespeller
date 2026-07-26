@@ -99,6 +99,7 @@ let isSleeping = false;
 let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
+let sustainedAboveTrigger = 0;
 
 const SCAN_INTERVAL_MS = 2000;
 const FIRST_CELL_EXTRA_PAUSE_MS = 3000;
@@ -108,9 +109,7 @@ const WORD_PAUSE_MS = 400;
 const TRIGGER_MODE = "eyebrow";
 const DETECTION_METHOD = { eyebrow: "color", mouth: "color" };
 
-// ADDED: per-mode per-pixel color-distance sensitivity. Lower = counts smaller movements as "changed".
-// Eyebrow motion is subtler than mouth motion, so it needs a lower number here.
-const PIXEL_COLOR_THRESHOLDS = { eyebrow: 9, mouth: 18 };
+const PIXEL_COLOR_THRESHOLDS = { eyebrow: 13, mouth: 18 };
 
 const REGION_DEFS = {
     eyebrow: [
@@ -121,7 +120,7 @@ const REGION_DEFS = {
 };
 const TRIGGER_THRESHOLDS = {
     head:    { unlock: 0.1, trigger: 0.5, reset: 0.2 },
-    eyebrow: { unlock: 0.1, trigger: 0.2, reset: 0.12 },
+    eyebrow: { unlock: 0.1, trigger: 0.3, reset: 0.18 },
     mouth:   { unlock: 0.1, trigger: 1.3, reset: 0.5 }
 };
 
@@ -280,7 +279,6 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
     const words = textToSpeak.split(" ").filter(w => w.length > 0);
     let wordIndex = 0;
 
-  
     function speakNextWord() {
         if (wordIndex >= words.length) { isBroadcasting = false; return; }
 
@@ -294,9 +292,6 @@ function broadcastTrueIphoneSpeech(textToSpeak) {
 
         let callbackFired = false;
 
-        // ADDED: safety timer — if iOS never fires onend/onerror (silent speech failure),
-        // this forces isBroadcasting back to false after 4 seconds so the whole interface
-        // doesn't stay frozen forever.
         let watchdog = setTimeout(() => {
             if (!callbackFired) {
                 callbackFired = true;
@@ -457,11 +452,15 @@ function analyzePixelsLoop() {
             initializeHardwareAudio(); 
         }
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger && cameraUnlocked && !cooldownActive) {
-            if (!motionTriggered && trackingReady) {
+            sustainedAboveTrigger++;
+            if (sustainedAboveTrigger >= 2 && !motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
+        } else {
+            sustainedAboveTrigger = 0;
+            if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
+        }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
