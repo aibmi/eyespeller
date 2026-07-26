@@ -29,6 +29,7 @@
     </div>
 
     <div id="preview-box">＿</div>
+    <div id="debug-readout" style="font-size:14px; color:#ffd60a; padding:2px 4px;"></div>
     <div id="matrix"></div>
     
     <div id="video-container">
@@ -440,7 +441,7 @@ function analyzePixelsLoop() {
             const regionsToCheck = Array.isArray(regionData) ? regionData : [regionData];
             motionRatio = Math.max(...regionsToCheck.map(r => computeRegionMotionRatio(data, w, h, r, DETECTION_METHOD[TRIGGER_MODE])));
         }
-
+        document.getElementById('debug-readout').innerText = 'ratio: ' + motionRatio.toFixed(2) + ' / trigger: ' + TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger;
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].unlock && !cameraUnlocked) {
             cameraUnlocked = true;
             if (!cooldownActive) videoContainerDOM.style.borderColor = "#007aff";
