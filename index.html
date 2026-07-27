@@ -107,14 +107,14 @@ const WORD_PAUSE_MS = 400;
 let TRIGGER_MODE = localStorage.getItem('trigger_mode') || "head";
 const DETECTION_METHOD = { mouth: "color" };
 
-const PIXEL_COLOR_THRESHOLDS = { mouth:24 };
+const PIXEL_COLOR_THRESHOLDS = { mouth:32 };
 
 const REGION_DEFS = {
     mouth: { xStart: 0.45, xEnd: 0.60, yStart: 0.60, yEnd: 0.72 }
 };
 const TRIGGER_THRESHOLDS = {
     head:  { unlock: 0.1, trigger: 0.5, reset: 0.2 },
-    mouth: { unlock: 0.1, trigger: 1.3, reset: 0.5 }
+    mouth: { unlock: 0.1, trigger: 2.0, reset: 0.8 }
 };
 
 const previewDOM = document.getElementById("preview-box");
