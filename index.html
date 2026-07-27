@@ -98,7 +98,6 @@ let isSleeping = false;
 let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
-let sustainedAboveTrigger = 0;
 
 const SCAN_INTERVAL_MS = 2000;
 const FIRST_CELL_EXTRA_PAUSE_MS = 3000;
@@ -261,7 +260,6 @@ function processSelection(value) {
                 localStorage.setItem('trigger_mode', TRIGGER_MODE);
                 cameraUnlocked = false;
                 motionTriggered = false;
-                sustainedAboveTrigger = 0;
                 updateModeIcon();
                 drawRegionOverlay();
                 break;
@@ -453,15 +451,11 @@ function analyzePixelsLoop() {
             initializeHardwareAudio(); 
         }
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger && cameraUnlocked && !cooldownActive) {
-            sustainedAboveTrigger++;
-            if (sustainedAboveTrigger >= 2 && !motionTriggered && trackingReady) {
+            if (!motionTriggered && trackingReady) {
                 motionTriggered = true; 
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else {
-            sustainedAboveTrigger = 0;
-            if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
-        }
+        } else if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
