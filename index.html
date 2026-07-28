@@ -98,6 +98,7 @@ let isSleeping = false;
 let video, canvas, ctx;
 let prevFrameData = null;
 let motionTriggered = false;
+let sustainStartTime = null;
 
 const SCAN_INTERVAL_MS = 2000;
 const FIRST_CELL_EXTRA_PAUSE_MS = 3000;
@@ -116,6 +117,8 @@ const TRIGGER_THRESHOLDS = {
     head:  { unlock: 0.1, trigger: 0.5, reset: 0.2 },
     mouth: { unlock: 0.1, trigger: 2.0, reset: 0.8 }
 };
+
+const HOLD_DURATION_MS = { mouth: 600 };
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
@@ -260,6 +263,7 @@ function processSelection(value) {
                 localStorage.setItem('trigger_mode', TRIGGER_MODE);
                 cameraUnlocked = false;
                 motionTriggered = false;
+                sustainStartTime = null;
                 updateModeIcon();
                 drawRegionOverlay();
                 break;
@@ -451,11 +455,21 @@ function analyzePixelsLoop() {
             initializeHardwareAudio(); 
         }
         if (motionRatio > TRIGGER_THRESHOLDS[TRIGGER_MODE].trigger && cameraUnlocked && !cooldownActive) {
-            if (!motionTriggered && trackingReady) {
-                motionTriggered = true; 
+            const holdRequired = HOLD_DURATION_MS[TRIGGER_MODE] || 0;
+            if (holdRequired > 0) {
+                if (sustainStartTime === null) { sustainStartTime = Date.now(); }
+                if (Date.now() - sustainStartTime >= holdRequired && !motionTriggered && trackingReady) {
+                    motionTriggered = true;
+                    if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
+                }
+            } else if (!motionTriggered && trackingReady) {
+                motionTriggered = true;
                 if (isSleeping) { exitSleepState(); } else { executeSelectionAction(); }
             }
-        } else if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
+        } else {
+            sustainStartTime = null;
+            if (motionRatio < TRIGGER_THRESHOLDS[TRIGGER_MODE].reset) { motionTriggered = false; }
+        }
         for (let i = 0; i < data.length; i++) { prevFrameData[i] = data[i]; }
     } catch (e) {}
     requestAnimationFrame(analyzePixelsLoop);
