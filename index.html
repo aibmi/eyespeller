@@ -249,7 +249,7 @@ function processSelection(value) {
             case "一文字消去": constructedString = constructedString.slice(0, -1); break;
             case "全消去": constructedString = ""; break;
             case "読み上げ": broadcastTrueIphoneSpeech(constructedString); break; 
-            case "おねがい": 
+            case "お願いします": 
                 constructedString += "お願いします";
                 renderPreview();
                 broadcastTrueIphoneSpeech("お願いします"); 
