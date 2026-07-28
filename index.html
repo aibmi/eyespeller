@@ -116,7 +116,7 @@ const REGION_DEFS = {
 const TRIGGER_THRESHOLDS = {
     head:  { unlock: 0.1, trigger: 0.5, reset: 0.2 },
     mouth: { unlock: 0.1, trigger: 2.0, reset: 0.8 }
-};
+};const COOLDOWN_MS = { head: 2500, mouth: 1500 };
 
 const previewDOM = document.getElementById("preview-box");
 const matrixDOM = document.getElementById("matrix");
@@ -239,7 +239,7 @@ function executeSelectionAction() {
     setTimeout(() => {
         cooldownActive = false;
         if (cameraUnlocked) videoContainerDOM.style.borderColor = "#007aff";
-    }, 2500);
+    }, COOLDOWN_MS[TRIGGER_MODE]);
 }
 
 function processSelection(value) {
