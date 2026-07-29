@@ -139,7 +139,7 @@ function playBlinkConfirmationSound() {
         const gainNode = globalAudioCtx.createGain();
         oscillator.type = 'sine';
         oscillator.frequency.setValueAtTime(880, globalAudioCtx.currentTime); 
-        gainNode.gain.setValueAtTime(0.15, globalAudioCtx.currentTime); 
+        gainNode.gain.setValueAtTime(0.00, globalAudioCtx.currentTime); 
         gainNode.gain.exponentialRampToValueAtTime(0.001, globalAudioCtx.currentTime + 0.12);
         oscillator.connect(gainNode);
         gainNode.connect(globalAudioCtx.destination);
